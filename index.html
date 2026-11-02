@@ -171,7 +171,7 @@ const AUTH_ERR={
   'auth/user-not-found':'E-mail ou senha incorretos.',
   'auth/user-disabled':'Este acesso foi desativado.',
   'auth/too-many-requests':'Muitas tentativas. Espere alguns minutos e tente de novo.',
-  'auth/email-already-in-use':'Já existe um acesso com este e-mail.',
+  'auth/email-already-in-use':'Já existe um acesso com este e-mail. Se for de uma locadora excluída, apague o usuário em Firebase > Authentication ou use outro e-mail.',
   'auth/weak-password':'A senha precisa ter pelo menos 6 caracteres.',
   'auth/network-request-failed':'Sem internet. Verifique a conexão e tente de novo.',
   'auth/missing-password':'Digite a senha.'
@@ -195,6 +195,7 @@ function showLogin(modo){
     <button type="button" class="link" id="lmode">${primeiro?'Voltar para o login':'Primeiro acesso do administrador'}</button>
   </div>`;
   const err=$('#lerr');
+  if(S.msgLogin){err.textContent=S.msgLogin;S.msgLogin=''}
   $('#lmode').onclick=()=>showLogin(primeiro?'':'admin');
   $('#lf').addEventListener('submit',async e=>{
     e.preventDefault();err.textContent='';
@@ -238,13 +239,53 @@ auth.onAuthStateChanged(async u=>{
     let aberto=false;
     userSubs.push(fs.collection('usuarios').doc(u.uid).onSnapshot(d=>{
       const p=d.exists?d.data():null;
-      if(!p){if(!d.metadata.fromCache)showBlocked('Este acesso ainda não foi liberado. Fale com o administrador do sistema.');return}
+      if(!p){if(!d.metadata.fromCache)acessoRemovido(u);return}
       if(p.ativo!==true){aberto=false;showBlocked('Seu acesso está suspenso. Fale com o administrador do sistema.');return}
       S.meuNome=p.empresa||'Minha locadora';
-      if(!aberto){aberto=true;openTenant(u.uid,S.meuNome)}else{$('#empresaNome').textContent=S.meuNome}
+      if(!aberto){aberto=true;precisaTrocar(u.uid).then(t=>t?showTrocarSenha(u):openTenant(u.uid,S.meuNome))}else{$('#empresaNome').textContent=S.meuNome}
     },()=>showBlocked('Não foi possível verificar seu acesso. Verifique a internet e abra o app de novo.')));
   }
 });
+
+/* Locadora excluída pelo administrador: apaga o próprio login e volta para a tela de entrada */
+function acessoRemovido(u){
+  stop(tenantSubs);stop(userSubs);
+  S.msgLogin='Este acesso foi removido pelo administrador.';
+  u.delete().catch(()=>auth.signOut());
+}
+/* Troca obrigatória da senha inicial */
+function acessoRef(uid){return fs.doc(`empresas/${uid}/config/acesso`)}
+async function precisaTrocar(uid){try{const d=await acessoRef(uid).get();return d.exists&&d.data().trocarSenha===true}catch(e){return false}}
+function showTrocarSenha(u){
+  shell(false);
+  $('#view').innerHTML=`<div class="login">
+    <div class="brand"><img src="icon-192.png" alt=""><div><h1>Crie sua senha</h1><div class="sub">Primeiro acesso de ${esc(S.meuNome)}</div></div></div>
+    <form id="tf" novalidate>
+      <div class="note" style="margin:0">A senha que você recebeu é temporária. Escolha uma senha nova para continuar.</div>
+      <label>Nova senha (mínimo 6 caracteres)<input id="t-nova" type="password" autocomplete="new-password" required></label>
+      <label>Repita a nova senha<input id="t-conf" type="password" autocomplete="new-password" required></label>
+      <div class="err" id="terr" role="alert"></div>
+      <button class="primary" type="submit" id="tbtn">Salvar senha e entrar</button>
+    </form>
+    <button type="button" class="link" id="tsair">Sair</button>
+  </div>`;
+  $('#tsair').onclick=()=>auth.signOut();
+  $('#tf').addEventListener('submit',async e=>{
+    e.preventDefault();const err=$('#terr'),b=$('#tbtn');err.textContent='';
+    const nova=$('#t-nova').value,conf=$('#t-conf').value;
+    if(nova.length<6){err.textContent='A senha precisa ter pelo menos 6 caracteres.';return}
+    if(nova!==conf){err.textContent='As duas senhas não são iguais.';return}
+    b.disabled=true;
+    try{
+      await u.updatePassword(nova);
+      await acessoRef(u.uid).set({trocarSenha:false,senhaTrocadaEm:todayStr()},{merge:true});
+      toast('Senha criada');openTenant(u.uid,S.meuNome);
+    }catch(x){
+      if(x&&x.code==='auth/requires-recent-login'){S.msgLogin='Por segurança, entre de novo com a senha que você recebeu.';auth.signOut();return}
+      err.textContent=authMsg(x);b.disabled=false;
+    }
+  });
+}
 
 function openTenant(eid,nome){
   stop(tenantSubs);
@@ -487,7 +528,7 @@ function copiar(txt,el){
   try{navigator.clipboard.writeText(txt).then(ok,()=>sel())}catch(e){sel()}
   function sel(){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Texto selecionado. Toque em Copiar.')}
 }
-function acessoTexto(l,senha){return `Acesso ao Painel da Locadora\n\nLink: ${appUrl}\nE-mail: ${l.email}\n${senha?'Senha: '+senha+'\n':''}\nAbra o link no celular e toque em "Adicionar à tela inicial" para usar como app.`}
+function acessoTexto(l,senha){return `Acesso ao Painel da Locadora\n\nLink: ${appUrl}\nE-mail: ${l.email}\n${senha?'Senha: '+senha+'\n':''}\nNo primeiro acesso você vai criar a sua própria senha.\nAbra o link no celular e toque em "Adicionar à tela inicial" para usar como app.`}
 function mostrarAcesso(l,senha){
   const txt=acessoTexto(l,senha);
   openSheet(`<h3>Acesso criado</h3><p class="sub" style="margin-top:-6px">Envie estes dados para ${esc(l.responsavel||l.empresa)}. A senha não aparece de novo depois que você fechar.</p>
@@ -507,16 +548,28 @@ function locadoraForm(l){
     <label class="full">E-mail de acesso<input id="fl-email" name="email" type="email" inputmode="email" required value="${esc(l.email)}" ${isNew?'':'readonly'}></label>
     <label class="full">WhatsApp (com DDD)<input id="fl-tel" name="telefone" type="tel" inputmode="tel" value="${esc(l.telefone)}"></label>
     ${isNew?`<label class="full">Senha inicial<input id="fl-senha" name="senha" required minlength="6" value="${senhaAleatoria()}" style="font-family:var(--f-mono)"></label>`:
-    `<div class="full seg"><label><input type="radio" name="ativo" value="1" ${l.ativo?'checked':''}> Ativa</label><label><input type="radio" name="ativo" value="0" ${l.ativo?'':'checked'}> Suspensa</label></div>`}
+    `<div class="full seg"><label><input type="radio" name="ativo" value="1" ${l.ativo?'checked':''}> Ativa</label><label><input type="radio" name="ativo" value="0" ${l.ativo?'':'checked'}> Suspensa</label></div>
+    <div class="full sub">Suspensa: a locadora não consegue entrar, mas os dados ficam guardados.</div>
+    <label class="full" style="flex-direction:row;align-items:center;gap:8px;color:var(--fg)"><input id="fl-trocar" name="trocar" type="checkbox" style="width:auto"> Pedir nova senha no próximo acesso</label>`}
   </div>
+  ${isNew?'<div class="sub" style="margin-top:10px">No primeiro acesso a locadora entra com esta senha e já cria a senha dela.</div>':''}
   <div class="err" id="ferr" role="alert" style="margin-top:10px"></div>
-  <div class="form-actions"><span class="sub">${isNew?'':'Suspensa: a locadora não consegue entrar, mas os dados ficam guardados.'}</span><div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit" id="fbtn">${isNew?'Criar acesso':'Salvar'}</button></div></div></form>`,root=>{
+  <div class="form-actions">${isNew?'<span></span>':'<button type="button" class="danger" id="fdel">Excluir locadora</button>'}<div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit" id="fbtn">${isNew?'Criar acesso':'Salvar'}</button></div></div>
+  ${isNew?'':'<div class="sub" id="fdelmsg" hidden style="margin-top:8px;color:var(--bad)">Isso apaga a locadora, os veículos e os clientes dela, e ela perde o acesso. Não dá para desfazer.</div>'}</form>`,root=>{
+    const del=root.querySelector('#fdel');
+    if(del)del.addEventListener('click',async()=>{
+      if(!del.classList.contains('armed')){del.classList.add('armed');del.textContent='Toque de novo para excluir tudo';root.querySelector('#fdelmsg').hidden=false;return}
+      del.disabled=true;del.textContent='Excluindo…';
+      try{await excluirLocadora(l);closeSheet();toast(l.empresa+' foi excluída')}
+      catch(x){del.disabled=false;del.textContent='Excluir locadora';root.querySelector('#ferr').textContent='Não foi possível excluir. Verifique a internet e tente de novo.'}
+    });
     root.querySelector('#f').addEventListener('submit',async e=>{
       e.preventDefault();const fd=new FormData(e.target);const err=root.querySelector('#ferr'),b=root.querySelector('#fbtn');err.textContent='';
       const d={empresa:fd.get('empresa').trim(),responsavel:fd.get('responsavel').trim(),telefone:fd.get('telefone').trim()};
       if(!isNew){
         d.ativo=fd.get('ativo')==='1';
         fs.collection('usuarios').doc(l.id).update(d).then(()=>toast(d.ativo?'Locadora salva':'Locadora suspensa'),()=>toast('Não foi possível salvar.'));
+        if(fd.get('trocar'))acessoRef(l.id).set({trocarSenha:true},{merge:true}).catch(()=>{});
         closeSheet();return;
       }
       const email=fd.get('email').trim().toLowerCase(), senha=fd.get('senha');
@@ -529,6 +582,7 @@ function locadoraForm(l){
         const uid=cred.user.uid;
         await sec.auth().signOut();
         const novo={...d,email,role:'locadora',ativo:true,criadoEm:todayStr()};
+        await acessoRef(uid).set({trocarSenha:true});
         await fs.collection('usuarios').doc(uid).set(novo);
         mostrarAcesso(novo,senha);
       }catch(x){
@@ -538,6 +592,14 @@ function locadoraForm(l){
       }
     });
   });
+}
+async function excluirLocadora(l){
+  for(const c of ['veiculos','clientes','config']){
+    const s=await fs.collection(`empresas/${l.id}/${c}`).get();
+    await Promise.all(s.docs.map(d=>d.ref.delete()));
+  }
+  await fs.collection('usuarios').doc(l.id).delete();
+  if(S.eid===l.id)openTenant(S.user.uid,S.meuNome);
 }
 async function resetLocadora(l){
   try{await auth.sendPasswordResetEmail(l.email);toast('Link para nova senha enviado para '+l.email)}catch(x){toast(authMsg(x))}
