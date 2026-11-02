@@ -43,6 +43,12 @@ button{font:inherit;font-size:17px;font-weight:600;border-radius:12px;border:0;b
 button:disabled{opacity:.6}
 button:focus-visible,input:focus-visible,.shot:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .err{color:var(--bad);font-size:14px}
+.leitura{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--muted);background:var(--bg);border-radius:10px;padding:12px}
+.leitura.ok2{flex-direction:column;align-items:flex-start;gap:2px;background:var(--ok-soft);color:var(--ok);font-weight:600}
+.leitura.ok2 b{font-family:var(--f-mono);font-size:28px;color:var(--fg)}
+.leitura.falha{color:var(--fg);background:var(--bg);border:1px solid var(--line)}
+.spin{width:18px;height:18px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:gira .8s linear infinite;flex:none}
+@keyframes gira{to{transform:rotate(360deg)}}
 .ok{background:var(--ok-soft);color:var(--ok);border-radius:14px;padding:22px 16px;text-align:center;font-weight:600}
 .ok b{display:block;font-family:var(--f-display);font-size:28px;margin-bottom:4px}
 </style>
@@ -79,18 +85,42 @@ function render(L){
     <div class="card">
       <div class="veh"><span class="plate"><i>BRASIL</i><b>${esc(L.placa)}</b></span><div><div style="font-weight:600">${esc(L.modelo)}</div><div class="sub">Último KM registrado: ${fmtKm(L.kmAtual)}</div></div></div>
       <label class="shot" for="foto" id="shot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></svg><span>1. Toque aqui e tire a foto do painel</span></label><input id="foto" type="file" accept="image/*" capture="environment" hidden>
-      <label>2. Quilometragem que aparece no painel<input id="km" type="number" inputmode="numeric" min="0" placeholder="Ex.: ${fmtKm((Number(L.kmAtual)||0)+500).replace(/\D/g,'')}"></label>
+      <div class="leitura" id="leitura" hidden></div>
+      <label id="kmBox" hidden><span id="kmLabel">Quilometragem do painel</span><input id="km" type="number" inputmode="numeric" min="0"></label>
       <div class="err" id="err" role="alert"></div>
-      <button type="button" id="enviar">Enviar</button>
+      <button type="button" id="enviar" hidden>Enviar</button>
     </div>
-    <div class="sub" style="text-align:center">A foto vai direto para a locadora.</div>`;
-  let foto=null;
+    <div class="sub" style="text-align:center">A quilometragem é lida automaticamente na foto.</div>`;
+  let foto=null,kmIa=null,lendo=0;
+  const kmAt=Number(L.kmAtual)||0;
+  const plaus=k=>Number.isFinite(k)&&k>=kmAt&&k<=kmAt+20000;
   $('#km').addEventListener('input',()=>{$('#err').textContent=''});
   $('#foto').addEventListener('change',async e=>{
     const f=e.target.files[0];if(!f)return;
     $('#err').textContent='';
     try{foto=await comprimir(f);$('#shot').innerHTML=`<img alt="Foto do painel" src="${foto}"><span class="sub">Toque para tirar outra</span>`}
-    catch(x){$('#err').textContent='Não foi possível ler a foto. Tente de novo.'}
+    catch(x){$('#err').textContent='Não foi possível abrir a foto. Tente de novo.';return}
+    e.target.value='';
+    const id=++lendo, le=$('#leitura');
+    kmIa=null;$('#kmBox').hidden=true;$('#enviar').hidden=true;
+    le.hidden=false;le.className='leitura';le.innerHTML='<span class="spin" aria-hidden="true"></span> Lendo a quilometragem na foto…';
+    let r=null;
+    try{r=window.lerKm?await Promise.race([window.lerKm(foto,kmAt),new Promise((_,j)=>setTimeout(()=>j(new Error('tempo')),30000))]):null}catch(x){r=null}
+    if(id!==lendo)return;
+    if(r&&r.legivel&&plaus(r.km)){
+      kmIa=r.km;
+      le.className='leitura ok2';le.innerHTML=`Quilometragem lida na foto<b>${fmtKm(r.km)} km</b>`;
+      $('#kmLabel').textContent='Se o número estiver errado, corrija aqui';$('#km').value=r.km;
+      $('#kmBox').hidden=false;$('#enviar').hidden=false;$('#enviar').textContent='Confirmar e enviar';
+    }else{
+      le.className='leitura falha';
+      le.textContent=r&&r.legivel&&Number.isFinite(r.km)
+        ?`Lemos ${fmtKm(r.km)} km, mas o número não confere com o último registro. Tire outra foto mostrando bem o hodômetro (ODO) ou digite o número.`
+        :'Não conseguimos ler o número. Tire outra foto mais de perto, sem reflexo, ou digite a quilometragem.';
+      if(r&&Number.isFinite(r.km))kmIa=r.km;
+      $('#kmLabel').textContent='Quilometragem do painel';$('#km').value='';
+      $('#kmBox').hidden=false;$('#enviar').hidden=false;$('#enviar').textContent='Enviar';
+    }
   });
   $('#enviar').addEventListener('click',async()=>{
     const err=$('#err'),b=$('#enviar');err.textContent='';
@@ -101,7 +131,7 @@ function render(L){
     if(km>(Number(L.kmAtual)||0)+20000){err.textContent='O número parece alto demais. Confira o painel.';return}
     b.disabled=true;b.textContent='Enviando…';
     try{
-      await fs.collection(`empresas/${L.eid}/envios`).add({token,cid:L.cid,vid:L.vid,km,foto,data:hoje(),criadoEm:new Date().toISOString(),novo:true});
+      await fs.collection(`empresas/${L.eid}/envios`).add({token,cid:L.cid,vid:L.vid,km,foto,data:hoje(),criadoEm:new Date().toISOString(),novo:true,kmIa:Number.isFinite(kmIa)?kmIa:-1,corrigido:km!==kmIa});
       fim('Recebido, obrigado!',`Quilometragem ${fmtKm(km)} km enviada para a ${L.empresa}.`);
     }catch(x){b.disabled=false;b.textContent='Enviar';err.textContent='Não foi possível enviar. Verifique a internet e tente de novo.'}
   });
@@ -122,6 +152,34 @@ function comprimir(file){
   });
 }
 })();
+</script>
+<script type="module">
+// Leitura automática do hodômetro com IA (Gemini via Firebase AI Logic)
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
+import {getAI,getGenerativeModel,GoogleAIBackend,Schema} from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-ai.js';
+const CFG=window.LOCADORA_CONFIG||{};
+const ai=getAI(initializeApp(CFG.firebase,'ia'),{backend:new GoogleAIBackend()});
+const modelos=[CFG.modeloIA||'gemini-3-flash-preview'];
+const schema=Schema.object({properties:{
+  legivel:Schema.boolean({description:'true se o hodômetro total está visível e os dígitos dá para ler'}),
+  km:Schema.integer({description:'valor do hodômetro total em km, só dígitos inteiros'}),
+  motivo:Schema.string({description:'explicação curta'})
+},optionalProperties:['km','motivo']});
+window.lerKm=async(dataUrl,kmAnterior)=>{
+  const prompt=`Esta é uma foto do painel de um carro ou moto. Leia o HODÔMETRO TOTAL (ODO), que mostra a quilometragem total do veículo.
+Ignore: hodômetro parcial (TRIP, TRIP A, TRIP B), velocidade, rotação, relógio, temperatura, autonomia e consumo.
+Se houver casa decimal no hodômetro total, devolva só a parte inteira.
+Para referência, o último valor registrado deste veículo foi ${kmAnterior} km; o valor atual deve ser igual ou maior. Não invente: se não der para ler com segurança, responda legivel=false.`;
+  for(const m of modelos){
+    try{
+      const model=getGenerativeModel(ai,{model:m,generationConfig:{responseMimeType:'application/json',responseSchema:schema,temperature:0}});
+      const r=await model.generateContent([prompt,{inlineData:{mimeType:'image/jpeg',data:dataUrl.split(',')[1]}}]);
+      const j=JSON.parse(r.response.text());
+      return {legivel:!!j.legivel,km:Number.isFinite(j.km)?Math.round(j.km):NaN};
+    }catch(e){console.warn('IA',m,e&&e.message)}
+  }
+  return null;
+};
 </script>
 </body>
 </html>

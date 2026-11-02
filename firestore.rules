@@ -37,7 +37,7 @@ service cloud.firestore {
 
     // Envio da foto pelo cliente (sem login), validado pelo link.
     match /empresas/{empresaId}/envios/{envioId} {
-      allow create: if request.resource.data.keys().hasOnly(['token','cid','vid','km','foto','data','criadoEm','novo'])
+      allow create: if request.resource.data.keys().hasOnly(['token','cid','vid','km','foto','data','criadoEm','novo','kmIa','corrigido'])
         && request.resource.data.km is number && request.resource.data.km > 0 && request.resource.data.km < 10000000
         && request.resource.data.foto is string && request.resource.data.foto.size() < 900000
         && request.resource.data.novo == true

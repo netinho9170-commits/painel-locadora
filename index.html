@@ -342,7 +342,7 @@ function processarEnvios(){
   S.novos.forEach(d=>{
     if(envProc.has(d.id))return;envProc.add(d.id);
     const e=d.data(), v=veic(e.vid), c=S.clientes.find(x=>x.id===e.cid);
-    const foto={id:d.id,data:e.data,km:e.km};
+    const foto={id:d.id,data:e.data,km:e.km,auto:e.corrigido===false};
     const jobs=[d.ref.update({novo:false})];
     if(v){const up={ultimaFoto:foto};if(e.km>(Number(v.kmAtual)||0))up.kmAtual=e.km;jobs.push(col('veiculos').doc(v.id).update(up))}
     if(c)jobs.push(col('clientes').doc(c.id).update({ultimoKmRecebido:e.data}));
@@ -433,7 +433,7 @@ function vCard(v,compact){
     <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}</div></div></div><span class="pill ${o.st}">${esc(o.txt)}</span></div>
     <div class="meter" aria-hidden="true"><span style="width:${Math.round(o.usado*100)}%"></span></div>
     <div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Trocar em ${fmtKm(o.kmProx)} km${o.dataProx?' ou '+fmtDate(o.dataProx):''}</span></div>
-    ${v.ultimaFoto?`<div class="sub">Foto do painel: ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km</div>`:''}
+    ${v.ultimaFoto?`<div class="sub">Foto do painel: ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km · ${v.ultimaFoto.auto?'lido na foto':'<b style="color:var(--warn)">digitado pelo cliente</b>'}</div>`:''}
     <div class="actions">
       ${v.ultimaFoto?`<button type="button" data-act="foto" data-id="${v.id}">Ver foto</button>`:''}
       <button type="button" data-act="km" data-id="${v.id}">Atualizar KM</button>
@@ -723,6 +723,7 @@ document.addEventListener('click',e=>{
 });
 async function verFoto(v){
   openSheet(`<h3>Foto do painel</h3><p class="sub" style="margin-top:-6px">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km</p>
+  <p class="sub" id="fotoOrigem"></p>
   <div id="fotoBox" class="empty">Carregando foto…</div>
   <div class="form-actions"><span></span><button type="button" data-close>Fechar</button></div>`);
   try{
@@ -730,7 +731,9 @@ async function verFoto(v){
     const box=$('#fotoBox');if(!box)return;
     if(!d.exists){box.textContent='A foto não está mais disponível.';return}
     box.className='';box.innerHTML='<img alt="Foto do painel" style="width:100%;border-radius:10px;display:block">';
-    box.firstChild.src=d.data().foto;
+    const e=d.data();box.firstChild.src=e.foto;
+    const o=$('#fotoOrigem');
+    if(o)o.textContent=e.corrigido===false?'Quilometragem lida automaticamente na foto.':e.kmIa>0?`A leitura automática deu ${fmtKm(e.kmIa)} km e o cliente informou ${fmtKm(e.km)} km. Confira na foto.`:'O cliente digitou a quilometragem (a foto não pôde ser lida). Confira na foto.';
   }catch(x){const box=$('#fotoBox');if(box)box.textContent='Não foi possível carregar a foto.'}
 }
 $('#fab').addEventListener('click',()=>S.tab==='clientes'?clienteForm():S.tab==='veiculos'?veiculoForm():S.tab==='locadoras'?locadoraForm():novoMenu());
