@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Painel da Locadora</title>
+<meta name="theme-color" content="#C9780A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Locadora">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: app de uma coluna com barra de abas fixa embaixo; cartões com faixa de status à esquerda */
+:root{
+  --bg:#F3F4F6; --surface:#FFFFFF; --line:#DDE1E7; --fg:#1B2230; --muted:#5E6878;
+  --accent:#C9780A; --accent-ink:#FFFFFF; --accent-soft:#FBEFD9;
+  --ok:#1F8A4C; --ok-soft:#E3F4EA; --warn:#B66A00; --warn-soft:#FFF1D6; --bad:#C2352B; --bad-soft:#FCE5E2;
+  --plate-blue:#1D3F94;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  padding-top:env(safe-area-inset-top,0px);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12161D; --surface:#1B212B; --line:#2B3340; --fg:#E7EAEF; --muted:#98A2B2;
+  --accent:#F0A12E; --accent-ink:#1A1205; --accent-soft:#3A2A10;
+  --ok:#4CC27F; --ok-soft:#163223; --warn:#F2AE3D; --warn-soft:#3A2B10; --bad:#F06A5E; --bad-soft:#3D1A17;
+  --plate-blue:#2E5BC9; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg)}
+body{margin:0;font-family:var(--f-body);font-size:15px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 100px}
+.wrap{max-width:640px;margin:0 auto}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding-block:20px 12px}
+header.top>div{min-width:0}
+h1{font-family:var(--f-display);font-weight:700;font-size:30px;line-height:1.05;margin:0;letter-spacing:.01em;text-wrap:balance;overflow-wrap:anywhere}
+.date{font-size:13px;color:var(--muted)}
+h2{font-family:var(--f-display);font-weight:600;font-size:20px;margin:22px 0 10px;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px}
+h2 .count{font-family:var(--f-mono);font-size:13px;background:var(--line);border-radius:999px;padding:1px 8px;letter-spacing:0}
+.note{font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-top:8px}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
+.sum{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
+.sum b{display:block;font-family:var(--f-display);font-size:28px;line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.sum span{font-size:12px;color:var(--muted)}
+.sum.bad b{color:var(--bad)} .sum.warn b{color:var(--warn)}
+.list{display:flex;flex-direction:column;gap:8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 12px 12px 16px;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:8px}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--line)}
+.card.bad::before{background:var(--bad)} .card.warn::before{background:var(--warn)} .card.ok::before{background:var(--ok)}
+.row{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.title{font-weight:600;font-size:16px;min-width:0;overflow-wrap:anywhere}
+.sub{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.pill{font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.pill.bad{background:var(--bad-soft);color:var(--bad)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.ok{background:var(--ok-soft);color:var(--ok)}
+.plate{display:inline-flex;flex-direction:column;border:1.5px solid var(--fg);border-radius:4px;overflow:hidden;background:#FFFFFF;color:#111;min-width:86px;text-align:center;flex:none}
+.plate i{display:block;background:var(--plate-blue);color:#fff;font-style:normal;font-size:7px;letter-spacing:.12em;padding:1px 0;font-family:var(--f-body);font-weight:600}
+.plate b{font-family:var(--f-mono);font-weight:600;font-size:14px;letter-spacing:.06em;padding:1px 6px}
+.meter{height:6px;border-radius:999px;background:var(--line);overflow:hidden}
+.meter span{display:block;height:100%;background:var(--ok)}
+.card.warn .meter span{background:var(--warn)} .card.bad .meter span{background:var(--bad)}
+.nums{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+button,.btn{font:inherit;font-size:14px;font-weight:600;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:8px 12px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button:disabled{opacity:.6;cursor:default}
+button:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary,button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.wa{background:var(--ok);color:#fff;border-color:var(--ok)}
+button.danger{color:var(--bad);border-color:var(--bad)}
+button.danger.armed{background:var(--bad);color:#fff}
+button.link{border:0;background:none;color:var(--accent);padding:6px 0;font-weight:600}
+.empty{text-align:center;color:var(--muted);padding:22px 12px;background:var(--surface);border:1px dashed var(--line);border-radius:12px}
+.acct{width:42px;height:42px;padding:0;border-radius:999px;flex:none}
+.acct svg{width:22px;height:22px}
+.tenant{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--accent-soft);color:var(--fg);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:14px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);z-index:5}
+nav.tabs button{flex:1;max-width:180px;border:0;border-radius:0;background:none;flex-direction:column;gap:2px;padding:9px 4px 10px;font-size:12px;color:var(--muted)}
+nav.tabs button svg{width:22px;height:22px}
+nav.tabs button[aria-selected="true"]{color:var(--accent)}
+.badge{font-family:var(--f-mono);font-size:10px;background:var(--bad);color:#fff;border-radius:999px;padding:0 5px;margin-left:2px}
+.fab{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:6;border-radius:999px;padding:12px 18px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.sheet-bg{position:fixed;inset:0;background:rgba(10,14,20,.5);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--bg);width:100%;max-width:640px;max-height:92%;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.sheet h3{font-family:var(--f-display);font-size:24px;margin:0 0 12px}
+form .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+form .full{grid-column:1/-1}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--muted);min-width:0}
+input,select{font:inherit;font-size:16px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 10px;width:100%;min-width:0}
+.seg{display:flex;gap:6px}
+.seg label{flex:1;flex-direction:row;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px;color:var(--fg);cursor:pointer}
+.seg input{width:auto}
+.form-actions{display:flex;gap:8px;justify-content:space-between;margin-top:16px;flex-wrap:wrap}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
+.banner{font-size:13px;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 12px;margin-bottom:8px}
+.login{max-width:400px;margin:8vh auto 0;display:flex;flex-direction:column;gap:14px}
+.login .brand{display:flex;align-items:center;gap:12px}
+.login .brand img{width:52px;height:52px;border-radius:12px}
+.login form{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.err{color:var(--bad);font-size:14px;min-height:0}
+.cred{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--f-mono);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:380px){.sum b{font-size:24px}form .grid{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top" id="hdr" hidden>
+    <div><h1 id="empresaNome">Painel da Locadora</h1><div class="date" id="today"></div></div>
+    <button type="button" class="acct" id="acct" aria-label="Minha conta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></button>
+  </header>
+  <div id="tenant" class="tenant" hidden></div>
+  <div id="banner" class="banner" hidden></div>
+  <main id="view"><div class="empty" style="margin-top:30vh">Carregando…</div></main>
+</div>
+
+<button class="primary fab" id="fab" type="button" hidden>+ Novo</button>
+
+<nav class="tabs" id="tabs" role="tablist" hidden>
+  <button role="tab" data-tab="avisos" aria-selected="true" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span>Avisos <span id="badge" class="badge" hidden></span></span></button>
+  <button role="tab" data-tab="veiculos" aria-selected="false" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14v-5l-2-5H7l-2 5z"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/></svg><span>Veículos</span></button>
+  <button role="tab" data-tab="clientes" aria-selected="false" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Clientes</span></button>
+  <button role="tab" data-tab="locadoras" aria-selected="false" type="button" id="tabLoc" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-6h6v6"/></svg><span>Locadoras</span></button>
+</nav>
+
+<div id="sheetRoot"></div>
+
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtKm=n=>(Number(n)||0).toLocaleString('pt-BR');
+const fmtR=n=>(Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+function toStr(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function todayStr(){return toStr(new Date())}
+function parse(s){const [y,m,d]=String(s).split('-').map(Number);return new Date(y,(m||1)-1,d||1)}
+function daysBetween(a,b){return Math.round((parse(b)-parse(a))/86400000)}
+function addMonths(s,n){const d=parse(s);const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+n);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return toStr(d)}
+function addDays(s,n){const d=parse(s);d.setDate(d.getDate()+n);return toStr(d)}
+function fmtDate(s){if(!s)return'—';return parse(s).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}
+const FREQ={semanal:'Semanal',quinzenal:'Quinzenal',mensal:'Mensal'};
+function nextDue(s,f){return f==='semanal'?addDays(s,7):f==='quinzenal'?addDays(s,14):addMonths(s,1)}
+const appUrl=location.href.split('#')[0].split('?')[0];
+$('#today').textContent=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
+
+/* ---------- Configuração ---------- */
+const CFG=window.LOCADORA_CONFIG||{};
+const ADMIN=String(CFG.adminEmail||'').trim().toLowerCase();
+if(!window.firebase||!CFG.firebase||/COLE_AQUI/.test(JSON.stringify(CFG.firebase))){
+  $('#view').innerHTML=`<div class="login"><h1>Falta configurar</h1><div class="note">Abra o arquivo <b>config.js</b> e cole os dados do seu projeto Firebase, como no passo a passo. Depois envie o arquivo de novo para o GitHub.</div></div>`;
+  return;
+}
+firebase.initializeApp(CFG.firebase);
+const auth=firebase.auth(), fs=firebase.firestore();
+try{fs.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){}
+
+/* ---------- Estado ---------- */
+const S={user:null,isAdmin:false,meuNome:'',eid:null,eNome:'',veiculos:[],clientes:[],locadoras:[],tab:'avisos',ready:{veiculos:false,clientes:false},bloqueado:false};
+let tenantSubs=[], userSubs=[];
+function stop(arr){arr.splice(0).forEach(u=>{try{u()}catch(e){}})}
+
+const AUTH_ERR={
+  'auth/invalid-email':'E-mail inválido.',
+  'auth/invalid-credential':'E-mail ou senha incorretos.',
+  'auth/wrong-password':'E-mail ou senha incorretos.',
+  'auth/user-not-found':'E-mail ou senha incorretos.',
+  'auth/user-disabled':'Este acesso foi desativado.',
+  'auth/too-many-requests':'Muitas tentativas. Espere alguns minutos e tente de novo.',
+  'auth/email-already-in-use':'Já existe um acesso com este e-mail.',
+  'auth/weak-password':'A senha precisa ter pelo menos 6 caracteres.',
+  'auth/network-request-failed':'Sem internet. Verifique a conexão e tente de novo.',
+  'auth/missing-password':'Digite a senha.'
+};
+const authMsg=e=>AUTH_ERR[e&&e.code]||'Não deu certo. Tente de novo.';
+
+/* ---------- Login ---------- */
+function shell(on){$('#hdr').hidden=!on;$('#tabs').hidden=!on;$('#fab').hidden=!on;if(!on){$('#tenant').hidden=true;$('#banner').hidden=true}}
+function showLogin(modo){
+  shell(false);
+  const primeiro=modo==='admin';
+  $('#view').innerHTML=`<div class="login">
+    <div class="brand"><img src="icon-192.png" alt=""><div><h1>Painel da Locadora</h1><div class="sub">${primeiro?'Primeiro acesso do administrador':'Entre com o acesso que você recebeu'}</div></div></div>
+    <form id="lf" novalidate>
+      <label>E-mail<input id="l-email" type="email" autocomplete="username" inputmode="email" required></label>
+      <label>Senha${primeiro?' (crie uma, mínimo 6 caracteres)':''}<input id="l-senha" type="password" autocomplete="${primeiro?'new-password':'current-password'}" required></label>
+      <div class="err" id="lerr" role="alert"></div>
+      <button class="primary" type="submit" id="lbtn">${primeiro?'Criar acesso de administrador':'Entrar'}</button>
+      ${primeiro?'':'<button type="button" class="link" id="lreset">Esqueci minha senha</button>'}
+    </form>
+    <button type="button" class="link" id="lmode">${primeiro?'Voltar para o login':'Primeiro acesso do administrador'}</button>
+  </div>`;
+  const err=$('#lerr');
+  $('#lmode').onclick=()=>showLogin(primeiro?'':'admin');
+  $('#lf').addEventListener('submit',async e=>{
+    e.preventDefault();err.textContent='';
+    const email=$('#l-email').value.trim().toLowerCase(), senha=$('#l-senha').value;
+    if(!email){err.textContent='Digite o e-mail.';return}
+    const b=$('#lbtn');b.disabled=true;
+    try{
+      if(primeiro){
+        if(email!==ADMIN){err.textContent='Este e-mail não é o do administrador definido no config.js.';b.disabled=false;return}
+        await auth.createUserWithEmailAndPassword(email,senha);
+      }else await auth.signInWithEmailAndPassword(email,senha);
+    }catch(x){err.textContent=x.code==='auth/email-already-in-use'&&primeiro?'O administrador já tem acesso. Volte e entre normalmente.':authMsg(x);b.disabled=false}
+  });
+  const r=$('#lreset');if(r)r.onclick=async()=>{
+    const email=$('#l-email').value.trim();if(!email){err.textContent='Digite seu e-mail acima e toque de novo em "Esqueci minha senha".';return}
+    try{await auth.sendPasswordResetEmail(email);err.textContent='';toast('Enviamos um link para criar nova senha no seu e-mail.')}catch(x){err.textContent=authMsg(x)}
+  };
+}
+function showBlocked(msg){
+  stop(tenantSubs);shell(false);
+  $('#view').innerHTML=`<div class="login"><h1>Acesso suspenso</h1><div class="note">${esc(msg)}</div><button type="button" id="sair">Sair</button></div>`;
+  $('#sair').onclick=()=>auth.signOut();
+}
+
+auth.onAuthStateChanged(async u=>{
+  stop(tenantSubs);stop(userSubs);closeSheet();
+  S.user=u;S.locadoras=[];S.tab='avisos';
+  if(!u){showLogin();return}
+  S.isAdmin=(u.email||'').toLowerCase()===ADMIN;
+  $('#tabLoc').hidden=!S.isAdmin;
+  if(S.isAdmin){
+    const ref=fs.collection('usuarios').doc(u.uid);
+    ref.get().then(d=>{if(!d.exists)ref.set({role:'admin',empresa:CFG.nomeEmpresa||'Minha locadora',email:u.email,ativo:true,criadoEm:todayStr()}).catch(()=>{})}).catch(()=>{});
+    S.meuNome=CFG.nomeEmpresa||'Minha locadora';
+    userSubs.push(fs.collection('usuarios').where('role','==','locadora').onSnapshot(s=>{
+      S.locadoras=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.empresa).localeCompare(String(b.empresa)));
+      if(S.tab==='locadoras')render();
+    },e=>console.warn(e)));
+    openTenant(u.uid,S.meuNome);
+  }else{
+    let aberto=false;
+    userSubs.push(fs.collection('usuarios').doc(u.uid).onSnapshot(d=>{
+      const p=d.exists?d.data():null;
+      if(!p){if(!d.metadata.fromCache)showBlocked('Este acesso ainda não foi liberado. Fale com o administrador do sistema.');return}
+      if(p.ativo!==true){aberto=false;showBlocked('Seu acesso está suspenso. Fale com o administrador do sistema.');return}
+      S.meuNome=p.empresa||'Minha locadora';
+      if(!aberto){aberto=true;openTenant(u.uid,S.meuNome)}else{$('#empresaNome').textContent=S.meuNome}
+    },()=>showBlocked('Não foi possível verificar seu acesso. Verifique a internet e abra o app de novo.')));
+  }
+});
+
+function openTenant(eid,nome){
+  stop(tenantSubs);
+  S.eid=eid;S.eNome=nome;S.veiculos=[];S.clientes=[];S.ready={veiculos:false,clientes:false};
+  if(S.tab==='locadoras'&&eid!==S.user.uid)S.tab='avisos';
+  shell(true);
+  $('#empresaNome').textContent=nome;
+  const outro=S.isAdmin&&eid!==S.user.uid;
+  const t=$('#tenant');t.hidden=!outro;
+  if(outro){t.innerHTML=`<span>Você está vendo o painel de <b>${esc(nome)}</b></span><button type="button" id="voltar">Voltar ao meu painel</button>`;$('#voltar').onclick=()=>openTenant(S.user.uid,S.meuNome)}
+  render();
+  const timer=setTimeout(()=>{if(!S.ready.veiculos||!S.ready.clientes){const b=$('#banner');b.hidden=false;b.textContent='Sem conexão com a internet. Mostrando o que já estava salvo no aparelho.'}},10000);
+  ['veiculos','clientes'].forEach(coll=>{
+    tenantSubs.push(fs.collection(`empresas/${eid}/${coll}`).onSnapshot({includeMetadataChanges:true},snap=>{
+      S[coll]=snap.docs.map(d=>({id:d.id,...d.data()}));
+      S.ready[coll]=true;
+      if(!snap.metadata.fromCache&&S.ready.veiculos&&S.ready.clientes){clearTimeout(timer);$('#banner').hidden=true}
+      render();
+    },e=>{clearTimeout(timer);const b=$('#banner');b.hidden=false;b.textContent=e&&e.code==='permission-denied'?'Sem permissão para ver estes dados.':'Não foi possível carregar os dados. Feche e abra o app de novo.'}));
+  });
+  tenantSubs.push(()=>clearTimeout(timer));
+}
+
+/* ---------- Gravação ---------- */
+function col(c){return fs.collection(`empresas/${S.eid}/${c}`)}
+function save(c,id,data){
+  const ref=id?col(c).doc(id):col(c).doc();
+  ref.set(data).catch(e=>toast(e&&e.code==='permission-denied'?'Sem permissão para salvar.':'Não foi possível salvar. Tente de novo.'));
+}
+function removeDoc(c,id){col(c).doc(id).delete().catch(()=>toast('Não foi possível apagar. Tente de novo.'))}
+function clean(d){const o={...d};delete o.id;return o}
+
+/* ---------- Regras de óleo e cobrança ---------- */
+function oleo(v){
+  const intKm=Number(v.intervaloKm)||1000, intM=Number(v.intervaloMeses)||3;
+  const kmProx=(Number(v.kmUltimaTroca)||0)+intKm;
+  const kmRest=kmProx-(Number(v.kmAtual)||0);
+  const dataProx=v.dataUltimaTroca?addMonths(v.dataUltimaTroca,intM):null;
+  const diasRest=dataProx?daysBetween(todayStr(),dataProx):null;
+  const margemKm=v.tipo==='moto'?200:500;
+  let st='ok';
+  if(kmRest<=0||(diasRest!==null&&diasRest<=0))st='bad';
+  else if(kmRest<=margemKm||(diasRest!==null&&diasRest<=15))st='warn';
+  const usado=Math.min(1,Math.max(0,1-kmRest/intKm));
+  let txt;
+  if(st==='bad')txt=kmRest<=0?`Troca vencida há ${fmtKm(-kmRest)} km`:`Troca vencida há ${-diasRest} dias`;
+  else if(st==='warn')txt=kmRest<=margemKm?`Faltam ${fmtKm(kmRest)} km`:`Vence em ${diasRest} dias`;
+  else txt=`Faltam ${fmtKm(kmRest)} km`;
+  return {st,kmRest,kmProx,dataProx,diasRest,usado,txt};
+}
+function cobr(c){
+  const d=daysBetween(todayStr(),c.proximoVencimento);
+  let st='ok',txt;
+  if(d<0){st='bad';txt=`Atrasado ${-d} ${-d===1?'dia':'dias'}`}
+  else if(d===0){st='bad';txt='Vence hoje'}
+  else if(d<=3){st='warn';txt=d===1?'Vence amanhã':`Vence em ${d} dias`}
+  else txt=`Vence ${fmtDate(c.proximoVencimento)}`;
+  return {st,dias:d,txt};
+}
+function veic(id){return S.veiculos.find(v=>v.id===id)}
+function waNum(t){const tel=String(t||'').replace(/\D/g,'');return tel.length<=11?'55'+tel:tel}
+function waLink(c){
+  const v=veic(c.veiculoId), cb=cobr(c);
+  const quando=cb.dias<0?`que venceu em ${fmtDate(c.proximoVencimento)}`:cb.dias===0?'que vence hoje':`que vence em ${fmtDate(c.proximoVencimento)}`;
+  const msg=`Olá, ${String(c.nome).split(' ')[0]}! Aqui é da ${S.eNome}. Passando para lembrar do pagamento da locação${v?' do '+v.modelo+' ('+v.placa+')':''}, no valor de ${fmtR(c.valor)}, ${quando}. Qualquer dúvida estou à disposição.`;
+  return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(msg);
+}
+
+/* ---------- Telas ---------- */
+function plate(p){return `<span class="plate"><i>BRASIL</i><b>${esc(p||'—')}</b></span>`}
+function vCard(v,compact){
+  const o=oleo(v), cli=S.clientes.find(c=>c.veiculoId===v.id);
+  return `<div class="card ${o.st}">
+    <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}</div></div></div><span class="pill ${o.st}">${esc(o.txt)}</span></div>
+    <div class="meter" aria-hidden="true"><span style="width:${Math.round(o.usado*100)}%"></span></div>
+    <div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Trocar em ${fmtKm(o.kmProx)} km${o.dataProx?' ou '+fmtDate(o.dataProx):''}</span></div>
+    <div class="actions">
+      <button type="button" data-act="km" data-id="${v.id}">Atualizar KM</button>
+      <button type="button" data-act="trocou" data-id="${v.id}"${o.st==='ok'?'':' class="primary"'}>Óleo trocado</button>
+      ${compact?'':`<button type="button" data-act="editV" data-id="${v.id}">Editar</button>`}
+    </div></div>`;
+}
+function cCard(c,compact){
+  const cb=cobr(c), v=veic(c.veiculoId);
+  return `<div class="card ${cb.st}">
+    <div class="row"><div style="min-width:0"><div class="title">${esc(c.nome)}</div><div class="sub">${v?esc(v.modelo)+' · '+esc(v.placa):'Sem veículo'} · ${FREQ[c.frequencia]||''} ${fmtR(c.valor)}</div></div><span class="pill ${cb.st}">${esc(cb.txt)}</span></div>
+    <div class="actions">
+      ${c.telefone?`<a class="btn wa" href="${waLink(c)}" target="_blank" rel="noopener">Cobrar no WhatsApp</a>`:''}
+      <button type="button" data-act="pago" data-id="${c.id}">Recebi</button>
+      ${compact?'':`<button type="button" data-act="editC" data-id="${c.id}">Editar</button>`}
+    </div>
+    ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
+  </div>`;
+}
+function lCard(l){
+  return `<div class="card ${l.ativo?'ok':'bad'}">
+    <div class="row"><div style="min-width:0"><div class="title">${esc(l.empresa)}</div><div class="sub">${esc(l.responsavel||'')}${l.responsavel?' · ':''}${esc(l.email)}</div></div><span class="pill ${l.ativo?'ok':'bad'}">${l.ativo?'Ativa':'Suspensa'}</span></div>
+    ${l.telefone?`<div class="nums">${esc(l.telefone)}${l.criadoEm?' · desde '+fmtDate(l.criadoEm):''}</div>`:''}
+    <div class="actions">
+      <button type="button" data-act="abrirL" data-id="${l.id}">Abrir painel</button>
+      <button type="button" data-act="editL" data-id="${l.id}">Editar</button>
+      <button type="button" data-act="resetL" data-id="${l.id}">Enviar nova senha</button>
+    </div></div>`;
+}
+function render(){
+  if(!S.eid)return;
+  const oleoAlert=S.veiculos.filter(v=>oleo(v).st!=='ok').sort((a,b)=>oleo(a).kmRest-oleo(b).kmRest);
+  const cobAlert=S.clientes.filter(c=>cobr(c).st!=='ok').sort((a,b)=>cobr(a).dias-cobr(b).dias);
+  const atras=S.clientes.filter(c=>cobr(c).dias<0);
+  const n=oleoAlert.length+cobAlert.length;
+  const bd=$('#badge');bd.hidden=!n;bd.textContent=n;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===S.tab)));
+  $('#fab').textContent=S.tab==='clientes'?'+ Cliente':S.tab==='veiculos'?'+ Veículo':S.tab==='locadoras'?'+ Locadora':'+ Novo';
+  const v=$('#view');
+  if(S.tab==='locadoras'){
+    const at=S.locadoras.filter(l=>l.ativo).length;
+    v.innerHTML=`<h2>Locadoras <span class="count">${S.locadoras.length}</span></h2>
+      <div class="sub" style="margin:-4px 0 10px">${at} ativa${at===1?'':'s'} · ${S.locadoras.length-at} suspensa${S.locadoras.length-at===1?'':'s'}</div>
+      <div class="list">${S.locadoras.length?S.locadoras.map(lCard).join(''):'<div class="empty">Nenhuma locadora cadastrada. Toque em <b>+ Locadora</b> para criar o primeiro acesso.</div>'}</div>`;
+    return;
+  }
+  if(!(S.ready.veiculos&&S.ready.clientes)){v.innerHTML='<div class="empty">Carregando dados…</div>';return}
+  if(S.tab==='avisos'){
+    const aReceber=S.clientes.filter(c=>{const d=cobr(c).dias;return d>=0&&d<=7}).reduce((s,c)=>s+(Number(c.valor)||0),0);
+    const vazio=!S.veiculos.length&&!S.clientes.length;
+    v.innerHTML=`
+      <div class="summary">
+        <div class="sum ${atras.length?'bad':''}"><b>${atras.length}</b><span>pagamentos atrasados</span></div>
+        <div class="sum ${oleoAlert.length?'warn':''}"><b>${oleoAlert.length}</b><span>trocas de óleo</span></div>
+        <div class="sum"><b style="font-size:20px;padding-block:4px">${fmtR(aReceber)}</b><span>a receber em 7 dias</span></div>
+      </div>
+      ${vazio?'<div class="note">Comece cadastrando seus veículos na aba <b>Veículos</b> e depois os clientes que estão com eles na aba <b>Clientes</b>. Os avisos aparecem aqui.</div>':''}
+      <h2>Cobranças <span class="count">${cobAlert.length}</span></h2>
+      <div class="list">${cobAlert.length?cobAlert.map(c=>cCard(c,true)).join(''):'<div class="empty">Nenhuma cobrança vencendo nos próximos 3 dias.</div>'}</div>
+      <h2>Troca de óleo <span class="count">${oleoAlert.length}</span></h2>
+      <div class="list">${oleoAlert.length?oleoAlert.map(x=>vCard(x,true)).join(''):'<div class="empty">Todos os veículos estão com o óleo em dia.</div>'}</div>`;
+  }else if(S.tab==='veiculos'){
+    const ord={bad:0,warn:1,ok:2};
+    const list=[...S.veiculos].sort((a,b)=>(ord[oleo(a).st]-ord[oleo(b).st])||String(a.modelo).localeCompare(String(b.modelo)));
+    v.innerHTML=`<h2>Frota <span class="count">${list.length}</span></h2><div class="list">${list.length?list.map(x=>vCard(x,false)).join(''):'<div class="empty">Nenhum veículo ainda. Toque em <b>+ Veículo</b> para cadastrar o primeiro carro ou moto.</div>'}</div>`;
+  }else{
+    const list=[...S.clientes].sort((a,b)=>cobr(a).dias-cobr(b).dias);
+    v.innerHTML=`<h2>Clientes <span class="count">${list.length}</span></h2><div class="list">${list.length?list.map(c=>cCard(c,false)).join(''):'<div class="empty">Nenhum cliente ainda. Toque em <b>+ Cliente</b> para cadastrar quem está com um veículo.</div>'}</div>`;
+  }
+}
+
+/* ---------- Folhas (formulários) ---------- */
+function openSheet(html,onReady){
+  const root=$('#sheetRoot');
+  root.innerHTML=`<div class="sheet-bg"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+  const bg=root.firstChild;
+  bg.addEventListener('click',e=>{if(e.target===bg)closeSheet()});
+  root.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeSheet));
+  onReady&&onReady(root);
+  const f=root.querySelector('input:not([hidden]),select');f&&f.focus();
+}
+function closeSheet(){$('#sheetRoot').innerHTML=''}
+function armDelete(root,onDel){
+  const b=root.querySelector('[data-del]');if(!b)return;
+  b.addEventListener('click',()=>{
+    if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Toque de novo para apagar';return}
+    onDel();closeSheet();toast('Apagado');});
+}
+const formBtns=(isNew,saveLabel)=>`<div class="form-actions">${isNew?'<span></span>':'<button type="button" class="danger" data-del>Apagar</button>'}<div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">${saveLabel||'Salvar'}</button></div></div>`;
+
+function veiculoForm(v){
+  const isNew=!v;v=v||{tipo:'carro',intervaloKm:5000,intervaloMeses:6,dataUltimaTroca:todayStr()};
+  openSheet(`<h3>${isNew?'Novo veículo':'Editar veículo'}</h3>
+  <form id="f"><div class="grid">
+    <div class="full seg"><label><input type="radio" name="tipo" value="carro" ${v.tipo!=='moto'?'checked':''}> Carro</label><label><input type="radio" name="tipo" value="moto" ${v.tipo==='moto'?'checked':''}> Moto</label></div>
+    <label class="full">Modelo<input id="fv-modelo" name="modelo" required value="${esc(v.modelo)}" placeholder="Ex.: Honda CG 160"></label>
+    <label>Placa<input id="fv-placa" name="placa" required value="${esc(v.placa)}" placeholder="ABC1D23" style="text-transform:uppercase;font-family:var(--f-mono)"></label>
+    <label>KM atual<input id="fv-km" name="kmAtual" type="number" inputmode="numeric" min="0" required value="${esc(v.kmAtual??'')}"></label>
+    <label>KM na última troca<input id="fv-kmt" name="kmUltimaTroca" type="number" inputmode="numeric" min="0" required value="${esc(v.kmUltimaTroca??'')}"></label>
+    <label>Data da última troca<input id="fv-dt" name="dataUltimaTroca" type="date" required value="${esc(v.dataUltimaTroca)}"></label>
+    <label>Trocar a cada (km)<input id="fv-ik" name="intervaloKm" type="number" inputmode="numeric" min="100" required value="${esc(v.intervaloKm)}"></label>
+    <label>Ou a cada (meses)<input id="fv-im" name="intervaloMeses" type="number" inputmode="numeric" min="1" required value="${esc(v.intervaloMeses)}"></label>
+  </div>${formBtns(isNew)}</form>`,root=>{
+    root.querySelectorAll('input[name=tipo]').forEach(r=>r.addEventListener('change',()=>{if(isNew){root.querySelector('#fv-ik').value=r.value==='moto'?1500:5000;root.querySelector('#fv-im').value=r.value==='moto'?3:6}}));
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
+      const d={tipo:fd.get('tipo'),modelo:fd.get('modelo').trim(),placa:fd.get('placa').trim().toUpperCase(),kmAtual:+fd.get('kmAtual'),kmUltimaTroca:+fd.get('kmUltimaTroca'),dataUltimaTroca:fd.get('dataUltimaTroca'),intervaloKm:+fd.get('intervaloKm'),intervaloMeses:+fd.get('intervaloMeses')};
+      if(d.kmAtual<d.kmUltimaTroca){toast('O KM atual não pode ser menor que o KM da última troca.');return}
+      save('veiculos',v.id,d);closeSheet();toast(isNew?'Veículo cadastrado':'Veículo salvo');});
+    armDelete(root,()=>removeDoc('veiculos',v.id));
+  });
+}
+function clienteForm(c){
+  const isNew=!c;c=c||{frequencia:'semanal',proximoVencimento:addDays(todayStr(),7)};
+  const opts=S.veiculos.map(v=>`<option value="${v.id}" ${c.veiculoId===v.id?'selected':''}>${esc(v.modelo)} · ${esc(v.placa)}</option>`).join('');
+  openSheet(`<h3>${isNew?'Novo cliente':'Editar cliente'}</h3>
+  <form id="f"><div class="grid">
+    <label class="full">Nome<input id="fc-nome" name="nome" required value="${esc(c.nome)}"></label>
+    <label class="full">WhatsApp (com DDD)<input id="fc-tel" name="telefone" type="tel" inputmode="tel" value="${esc(c.telefone)}" placeholder="(95) 99999-0000"></label>
+    <label class="full">Veículo alugado<select id="fc-v" name="veiculoId"><option value="">Nenhum</option>${opts}</select></label>
+    <label>Valor (R$)<input id="fc-valor" name="valor" type="number" inputmode="decimal" min="0" step="0.01" required value="${esc(c.valor??'')}"></label>
+    <label>Cobrança<select id="fc-freq" name="frequencia">${Object.entries(FREQ).map(([k,l])=>`<option value="${k}" ${c.frequencia===k?'selected':''}>${l}</option>`).join('')}</select></label>
+    <label class="full">Próximo vencimento<input id="fc-venc" name="proximoVencimento" type="date" required value="${esc(c.proximoVencimento)}"></label>
+  </div>${formBtns(isNew)}</form>`,root=>{
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
+      const d={...(isNew?{}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento')};
+      save('clientes',c.id,d);closeSheet();toast(isNew?'Cliente cadastrado':'Cliente salvo');});
+    armDelete(root,()=>removeDoc('clientes',c.id));
+  });
+}
+function kmForm(v){
+  openSheet(`<h3>Atualizar KM</h3><p class="sub" style="margin-top:-6px">${esc(v.modelo)} · ${esc(v.placa)} · último registro ${fmtKm(v.kmAtual)} km</p>
+  <form id="f"><label>KM no painel agora<input id="fk-km" name="km" type="number" inputmode="numeric" min="${Number(v.kmAtual)||0}" required></label>
+  ${formBtns(true)}</form>`,root=>{
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const km=+new FormData(e.target).get('km');
+      save('veiculos',v.id,{...clean(v),kmAtual:km});closeSheet();const o=oleo({...v,kmAtual:km});toast(o.st==='ok'?'KM atualizado':'KM atualizado · '+o.txt);});
+  });
+}
+function trocaForm(v){
+  openSheet(`<h3>Registrar troca de óleo</h3><p class="sub" style="margin-top:-6px">${esc(v.modelo)} · ${esc(v.placa)}</p>
+  <form id="f"><div class="grid"><label>KM na troca<input id="ft-km" name="km" type="number" inputmode="numeric" min="0" required value="${esc(v.kmAtual)}"></label>
+  <label>Data<input id="ft-dt" name="dt" type="date" required value="${todayStr()}"></label></div>
+  ${formBtns(true,'Confirmar troca')}</form>`,root=>{
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);const km=+fd.get('km');
+      save('veiculos',v.id,{...clean(v),kmUltimaTroca:km,kmAtual:Math.max(km,Number(v.kmAtual)||0),dataUltimaTroca:fd.get('dt')});closeSheet();toast('Troca registrada. Próxima em '+fmtKm(km+(Number(v.intervaloKm)||0))+' km');});
+  });
+}
+function pagoForm(c){
+  const prox=nextDue(c.proximoVencimento,c.frequencia);
+  openSheet(`<h3>Confirmar pagamento</h3><p>${esc(c.nome)} pagou <b>${fmtR(c.valor)}</b> referente a ${fmtDate(c.proximoVencimento)}.</p><p class="sub">O próximo vencimento passa para <b>${fmtDate(prox)}</b>.</p>
+  <div class="form-actions"><span></span><div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="button" id="okPago">Recebi</button></div></div>`,root=>{
+    root.querySelector('#okPago').addEventListener('click',()=>{
+      const hist=[{data:todayStr(),ref:c.proximoVencimento,valor:Number(c.valor)||0},...(Array.isArray(c.historico)?c.historico:[])].slice(0,24);
+      save('clientes',c.id,{...clean(c),proximoVencimento:prox,historico:hist});closeSheet();toast('Pagamento registrado');});
+  });
+}
+function novoMenu(){
+  openSheet(`<h3>Cadastrar</h3><div class="list"><button type="button" id="nv" class="primary">Novo veículo</button><button type="button" id="nc">Novo cliente</button><button type="button" data-close>Cancelar</button></div>`,root=>{
+    root.querySelector('#nv').onclick=()=>veiculoForm();root.querySelector('#nc').onclick=()=>clienteForm();});
+}
+
+/* ---------- Administração das locadoras ---------- */
+function senhaAleatoria(){const a='abcdefghjkmnpqrstuvwxyz23456789';let s='';const r=new Uint32Array(8);crypto.getRandomValues(r);r.forEach(x=>s+=a[x%a.length]);return s}
+function copiar(txt,el){
+  const ok=()=>toast('Copiado');
+  try{navigator.clipboard.writeText(txt).then(ok,()=>sel())}catch(e){sel()}
+  function sel(){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Texto selecionado. Toque em Copiar.')}
+}
+function acessoTexto(l,senha){return `Acesso ao Painel da Locadora\n\nLink: ${appUrl}\nE-mail: ${l.email}\n${senha?'Senha: '+senha+'\n':''}\nAbra o link no celular e toque em "Adicionar à tela inicial" para usar como app.`}
+function mostrarAcesso(l,senha){
+  const txt=acessoTexto(l,senha);
+  openSheet(`<h3>Acesso criado</h3><p class="sub" style="margin-top:-6px">Envie estes dados para ${esc(l.responsavel||l.empresa)}. A senha não aparece de novo depois que você fechar.</p>
+  <div class="cred" id="credTxt">${esc(txt)}</div>
+  <div class="actions" style="margin-top:12px">
+    <button type="button" class="primary" id="cp">Copiar</button>
+    ${l.telefone?`<a class="btn wa" target="_blank" rel="noopener" href="https://wa.me/${waNum(l.telefone)}?text=${encodeURIComponent(txt)}">Enviar no WhatsApp</a>`:''}
+    <button type="button" data-close>Fechar</button>
+  </div>`,root=>{root.querySelector('#cp').onclick=()=>copiar(txt,root.querySelector('#credTxt'))});
+}
+function locadoraForm(l){
+  const isNew=!l;l=l||{ativo:true};
+  openSheet(`<h3>${isNew?'Nova locadora':'Editar locadora'}</h3>
+  <form id="f"><div class="grid">
+    <label class="full">Nome da locadora<input id="fl-emp" name="empresa" required value="${esc(l.empresa)}"></label>
+    <label class="full">Responsável<input id="fl-resp" name="responsavel" value="${esc(l.responsavel)}"></label>
+    <label class="full">E-mail de acesso<input id="fl-email" name="email" type="email" inputmode="email" required value="${esc(l.email)}" ${isNew?'':'readonly'}></label>
+    <label class="full">WhatsApp (com DDD)<input id="fl-tel" name="telefone" type="tel" inputmode="tel" value="${esc(l.telefone)}"></label>
+    ${isNew?`<label class="full">Senha inicial<input id="fl-senha" name="senha" required minlength="6" value="${senhaAleatoria()}" style="font-family:var(--f-mono)"></label>`:
+    `<div class="full seg"><label><input type="radio" name="ativo" value="1" ${l.ativo?'checked':''}> Ativa</label><label><input type="radio" name="ativo" value="0" ${l.ativo?'':'checked'}> Suspensa</label></div>`}
+  </div>
+  <div class="err" id="ferr" role="alert" style="margin-top:10px"></div>
+  <div class="form-actions"><span class="sub">${isNew?'':'Suspensa: a locadora não consegue entrar, mas os dados ficam guardados.'}</span><div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit" id="fbtn">${isNew?'Criar acesso':'Salvar'}</button></div></div></form>`,root=>{
+    root.querySelector('#f').addEventListener('submit',async e=>{
+      e.preventDefault();const fd=new FormData(e.target);const err=root.querySelector('#ferr'),b=root.querySelector('#fbtn');err.textContent='';
+      const d={empresa:fd.get('empresa').trim(),responsavel:fd.get('responsavel').trim(),telefone:fd.get('telefone').trim()};
+      if(!isNew){
+        d.ativo=fd.get('ativo')==='1';
+        fs.collection('usuarios').doc(l.id).update(d).then(()=>toast(d.ativo?'Locadora salva':'Locadora suspensa'),()=>toast('Não foi possível salvar.'));
+        closeSheet();return;
+      }
+      const email=fd.get('email').trim().toLowerCase(), senha=fd.get('senha');
+      if(email===ADMIN){err.textContent='Esse é o e-mail do administrador. Use outro.';return}
+      b.disabled=true;b.textContent='Criando…';
+      let sec;
+      try{
+        sec=firebase.apps.find(a=>a.name==='cadastro')||firebase.initializeApp(CFG.firebase,'cadastro');
+        const cred=await sec.auth().createUserWithEmailAndPassword(email,senha);
+        const uid=cred.user.uid;
+        await sec.auth().signOut();
+        const novo={...d,email,role:'locadora',ativo:true,criadoEm:todayStr()};
+        await fs.collection('usuarios').doc(uid).set(novo);
+        mostrarAcesso(novo,senha);
+      }catch(x){
+        try{sec&&await sec.auth().signOut()}catch(_){}
+        err.textContent=x&&x.code&&x.code.startsWith('auth/')?authMsg(x):'Não foi possível criar o acesso. Verifique a internet e as regras do Firestore.';
+        b.disabled=false;b.textContent='Criar acesso';
+      }
+    });
+  });
+}
+async function resetLocadora(l){
+  try{await auth.sendPasswordResetEmail(l.email);toast('Link para nova senha enviado para '+l.email)}catch(x){toast(authMsg(x))}
+}
+
+/* ---------- Conta ---------- */
+function contaSheet(){
+  openSheet(`<h3>Minha conta</h3><p class="sub" style="margin-top:-6px">${esc(S.user.email)}${S.isAdmin?' · administrador':''}</p>
+  <div class="list">
+    ${S.isAdmin?'':`<button type="button" id="cpLink">Copiar link do app</button>`}
+    <button type="button" id="trocar">Trocar minha senha</button>
+    <button type="button" id="sair" class="danger">Sair</button>
+    <button type="button" data-close>Fechar</button>
+  </div>`,root=>{
+    root.querySelector('#trocar').onclick=async()=>{try{await auth.sendPasswordResetEmail(S.user.email);toast('Enviamos um link para criar nova senha no seu e-mail.')}catch(x){toast(authMsg(x))}};
+    root.querySelector('#sair').onclick=()=>auth.signOut();
+    const c=root.querySelector('#cpLink');if(c)c.onclick=()=>copiar(appUrl,c);
+  });
+}
+
+let tt;function toast(m){clearTimeout(tt);let t=$('.toast');if(!t){t=document.createElement('div');t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}t.textContent=m;tt=setTimeout(()=>t.remove(),3200)}
+
+document.addEventListener('click',e=>{
+  const tab=e.target.closest('nav.tabs button');
+  if(tab){S.tab=tab.dataset.tab;if(S.tab==='locadoras'&&S.eid!==S.user.uid)openTenant(S.user.uid,S.meuNome);render();window.scrollTo(0,0);return}
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const id=b.dataset.id,act=b.dataset.act;
+  const loc=()=>S.locadoras.find(l=>l.id===id);
+  if(act==='km')kmForm(veic(id));
+  else if(act==='trocou')trocaForm(veic(id));
+  else if(act==='editV')veiculoForm(veic(id));
+  else if(act==='editC')clienteForm(S.clientes.find(c=>c.id===id));
+  else if(act==='pago')pagoForm(S.clientes.find(c=>c.id===id));
+  else if(act==='abrirL'){const l=loc();S.tab='avisos';openTenant(l.id,l.empresa);window.scrollTo(0,0)}
+  else if(act==='editL')locadoraForm(loc());
+  else if(act==='resetL')resetLocadora(loc());
+});
+$('#fab').addEventListener('click',()=>S.tab==='clientes'?clienteForm():S.tab==='veiculos'?veiculoForm():S.tab==='locadoras'?locadoraForm():novoMenu());
+$('#acct').addEventListener('click',contaSheet);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});
+})();
+</script>
+</body>
+</html>
