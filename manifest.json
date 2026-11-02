@@ -1,6 +1,6 @@
 {
- "name": "Painel da Locadora",
- "short_name": "Locadora",
+ "name": "Giro Frota",
+ "short_name": "Giro Frota",
  "start_url": "./",
  "display": "standalone",
  "background_color": "#12161D",

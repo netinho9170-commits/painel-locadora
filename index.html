@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Painel da Locadora</title>
+<title>Giro Frota</title>
 <meta name="theme-color" content="#C9780A">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Locadora">
+<meta name="apple-mobile-web-app-title" content="Giro Frota">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -99,6 +99,7 @@ input,select{font:inherit;font-size:16px;color:var(--fg);background:var(--surfac
 .login .brand img{width:52px;height:52px;border-radius:12px}
 .login form{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
 .err{color:var(--bad);font-size:14px;min-height:0}
+.credito{text-align:center;font-size:12px;color:var(--muted);letter-spacing:.02em;margin-top:8px}
 .cred{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--f-mono);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media (max-width:380px){.sum b{font-size:24px}form .grid{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -107,7 +108,7 @@ input,select{font:inherit;font-size:16px;color:var(--fg);background:var(--surfac
 <body>
 <div class="wrap">
   <header class="top" id="hdr" hidden>
-    <div><h1 id="empresaNome">Painel da Locadora</h1><div class="date" id="today"></div></div>
+    <div><h1 id="empresaNome">Giro Frota</h1><div class="date" id="today"></div></div>
     <button type="button" class="acct" id="acct" aria-label="Minha conta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></button>
   </header>
   <div id="tenant" class="tenant" hidden></div>
@@ -171,7 +172,7 @@ const AUTH_ERR={
   'auth/user-not-found':'E-mail ou senha incorretos.',
   'auth/user-disabled':'Este acesso foi desativado.',
   'auth/too-many-requests':'Muitas tentativas. Espere alguns minutos e tente de novo.',
-  'auth/email-already-in-use':'Já existe um acesso com este e-mail. Se for de uma locadora excluída, apague o usuário em Firebase > Authentication ou use outro e-mail.',
+  'auth/email-already-in-use':'Já existe um acesso com este e-mail.',
   'auth/weak-password':'A senha precisa ter pelo menos 6 caracteres.',
   'auth/network-request-failed':'Sem internet. Verifique a conexão e tente de novo.',
   'auth/missing-password':'Digite a senha.'
@@ -184,7 +185,7 @@ function showLogin(modo){
   shell(false);
   const primeiro=modo==='admin';
   $('#view').innerHTML=`<div class="login">
-    <div class="brand"><img src="icon-192.png" alt=""><div><h1>Painel da Locadora</h1><div class="sub">${primeiro?'Primeiro acesso do administrador':'Entre com o acesso que você recebeu'}</div></div></div>
+    <div class="brand"><img src="icon-192.png" alt=""><div><h1>Giro Frota</h1><div class="sub">${primeiro?'Primeiro acesso do administrador':'Entre com o acesso que você recebeu'}</div></div></div>
     <form id="lf" novalidate>
       <label>E-mail<input id="l-email" type="email" autocomplete="username" inputmode="email" required></label>
       <label>Senha${primeiro?' (crie uma, mínimo 6 caracteres)':''}<input id="l-senha" type="password" autocomplete="${primeiro?'new-password':'current-password'}" required></label>
@@ -193,6 +194,7 @@ function showLogin(modo){
       ${primeiro?'':'<button type="button" class="link" id="lreset">Esqueci minha senha</button>'}
     </form>
     <button type="button" class="link" id="lmode">${primeiro?'Voltar para o login':'Primeiro acesso do administrador'}</button>
+    <div class="credito">Giro Frota · desenvolvido por <b>SysHub</b></div>
   </div>`;
   const err=$('#lerr');
   if(S.msgLogin){err.textContent=S.msgLogin;S.msgLogin=''}
@@ -607,10 +609,12 @@ function copiar(txt,el){
   try{navigator.clipboard.writeText(txt).then(ok,()=>sel())}catch(e){sel()}
   function sel(){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Texto selecionado. Toque em Copiar.')}
 }
-function acessoTexto(l,senha){return `Acesso ao Painel da Locadora\n\nLink: ${appUrl}\nE-mail: ${l.email}\n${senha?'Senha: '+senha+'\n':''}\nNo primeiro acesso você vai criar a sua própria senha.\nAbra o link no celular e toque em "Adicionar à tela inicial" para usar como app.`}
+function acessoTexto(l,senha){
+  const s=senha?`Senha: ${senha}\n\nNo primeiro acesso você vai criar a sua própria senha.`:`Senha: use a mesma senha de antes, ou crie uma nova pelo link que enviamos para o seu e-mail.`;
+  return `Acesso ao Giro Frota\n\nLink: ${appUrl}\nE-mail: ${l.email}\n${s}\nAbra o link no celular e toque em "Adicionar à tela inicial" para usar como app.`}
 function mostrarAcesso(l,senha){
   const txt=acessoTexto(l,senha);
-  openSheet(`<h3>Acesso criado</h3><p class="sub" style="margin-top:-6px">Envie estes dados para ${esc(l.responsavel||l.empresa)}. A senha não aparece de novo depois que você fechar.</p>
+  openSheet(`<h3>${senha?'Acesso criado':'Acesso reativado'}</h3><p class="sub" style="margin-top:-6px">${senha?`Envie estes dados para ${esc(l.responsavel||l.empresa)}. A senha não aparece de novo depois que você fechar.`:`Este e-mail já tinha sido usado por uma locadora excluída. O acesso foi reativado com o cadastro zerado e um link para criar nova senha foi enviado para ${esc(l.email)}.`}</p>
   <div class="cred" id="credTxt">${esc(txt)}</div>
   <div class="actions" style="margin-top:12px">
     <button type="button" class="primary" id="cp">Copiar</button>
@@ -655,18 +659,33 @@ function locadoraForm(l){
       if(email===ADMIN){err.textContent='Esse é o e-mail do administrador. Use outro.';return}
       b.disabled=true;b.textContent='Criando…';
       let sec;
+      const novo={...d,email,role:'locadora',ativo:true,criadoEm:todayStr()};
+      const lapide=fs.collection('excluidos').doc(email);
       try{
         sec=firebase.apps.find(a=>a.name==='cadastro')||firebase.initializeApp(CFG.firebase,'cadastro');
-        const cred=await sec.auth().createUserWithEmailAndPassword(email,senha);
+        let cred;
+        try{cred=await sec.auth().createUserWithEmailAndPassword(email,senha)}
+        catch(x){
+          if(!(x&&x.code==='auth/email-already-in-use'))throw x;
+          // E-mail de uma locadora excluída: reativa o mesmo login com cadastro zerado
+          const t=await lapide.get();
+          if(!t.exists)throw x;
+          const uid=t.data().uid;
+          await acessoRef(uid).set({trocarSenha:false});
+          await fs.collection('usuarios').doc(uid).set(novo);
+          await lapide.delete().catch(()=>{});
+          await auth.sendPasswordResetEmail(email).catch(()=>{});
+          mostrarAcesso(novo,null);return;
+        }
         const uid=cred.user.uid;
         await sec.auth().signOut();
-        const novo={...d,email,role:'locadora',ativo:true,criadoEm:todayStr()};
         await acessoRef(uid).set({trocarSenha:true});
         await fs.collection('usuarios').doc(uid).set(novo);
+        lapide.delete().catch(()=>{});
         mostrarAcesso(novo,senha);
       }catch(x){
         try{sec&&await sec.auth().signOut()}catch(_){}
-        err.textContent=x&&x.code&&x.code.startsWith('auth/')?authMsg(x):'Não foi possível criar o acesso. Verifique a internet e as regras do Firestore.';
+        err.textContent=x&&x.code==='auth/email-already-in-use'?'Já existe um acesso ativo com este e-mail. Use outro e-mail.':x&&x.code&&x.code.startsWith('auth/')?authMsg(x):'Não foi possível criar o acesso. Verifique a internet e tente de novo.';
         b.disabled=false;b.textContent='Criar acesso';
       }
     });
@@ -679,6 +698,8 @@ async function excluirLocadora(l){
     const s=await fs.collection(`empresas/${l.id}/${c}`).get();
     await Promise.all(s.docs.map(d=>d.ref.delete()));
   }
+  // Guarda o vínculo e-mail → login para permitir recadastrar o mesmo e-mail depois
+  if(l.email)await fs.collection('excluidos').doc(String(l.email).toLowerCase()).set({uid:l.id,email:l.email,empresa:l.empresa||'',excluidoEm:todayStr()});
   await fs.collection('usuarios').doc(l.id).delete();
   if(S.eid===l.id)openTenant(S.user.uid,S.meuNome);
 }
@@ -694,7 +715,8 @@ function contaSheet(){
     <button type="button" id="trocar">Trocar minha senha</button>
     <button type="button" id="sair" class="danger">Sair</button>
     <button type="button" data-close>Fechar</button>
-  </div>`,root=>{
+  </div>
+  <div class="credito">Giro Frota · desenvolvido por <b>SysHub</b></div>`,root=>{
     root.querySelector('#trocar').onclick=async()=>{try{await auth.sendPasswordResetEmail(S.user.email);toast('Enviamos um link para criar nova senha no seu e-mail.')}catch(x){toast(authMsg(x))}};
     root.querySelector('#sair').onclick=()=>auth.signOut();
     const c=root.querySelector('#cpLink');if(c)c.onclick=()=>copiar(appUrl,c);

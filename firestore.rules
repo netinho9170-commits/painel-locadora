@@ -25,6 +25,11 @@ service cloud.firestore {
       allow read, write: if isAdmin() || (locadoraAtiva() && request.auth.uid == empresaId);
     }
 
+    // Locadoras excluídas (para permitir recadastrar o mesmo e-mail): só o administrador.
+    match /excluidos/{email} {
+      allow read, write: if isAdmin();
+    }
+
     // Link exclusivo do cliente para mandar a foto do painel.
     // Quem tem o link consegue abrir só aquele link (não dá para listar os outros).
     match /links/{token} {

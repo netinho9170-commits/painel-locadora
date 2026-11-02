@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Foto do painel</title>
+<title>Foto do painel · Giro Frota</title>
 <meta name="theme-color" content="#C9780A">
 <meta name="robots" content="noindex">
 <link rel="icon" href="icon-192.png">
@@ -90,7 +90,8 @@ function render(L){
       <div class="err" id="err" role="alert"></div>
       <button type="button" id="enviar" hidden>Enviar</button>
     </div>
-    <div class="sub" style="text-align:center">A quilometragem é lida automaticamente na foto.</div>`;
+    <div class="sub" style="text-align:center">A quilometragem é lida automaticamente na foto.</div>
+    <div class="sub" style="text-align:center;font-size:12px">Giro Frota · SysHub</div>`;
   let foto=null,kmIa=null,lendo=0;
   const kmAt=Number(L.kmAtual)||0;
   const plaus=k=>Number.isFinite(k)&&k>=kmAt&&k<=kmAt+20000;
