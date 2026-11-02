@@ -304,9 +304,78 @@ function openTenant(eid,nome){
       S.ready[coll]=true;
       if(!snap.metadata.fromCache&&S.ready.veiculos&&S.ready.clientes){clearTimeout(timer);$('#banner').hidden=true}
       render();
+      if(!snap.metadata.fromCache){syncLinks();processarEnvios()}
     },e=>{clearTimeout(timer);const b=$('#banner');b.hidden=false;b.textContent=e&&e.code==='permission-denied'?'Sem permissão para ver estes dados.':'Não foi possível carregar os dados. Feche e abra o app de novo.'}));
   });
+  S.novos=[];
+  tenantSubs.push(fs.collection(`empresas/${eid}/envios`).where('novo','==',true).onSnapshot(snap=>{
+    if(S.eid!==eid)return;S.novos=snap.docs;processarEnvios();
+  },()=>{}));
   tenantSubs.push(()=>clearTimeout(timer));
+}
+
+/* ---------- Link exclusivo do cliente para enviar a foto do painel ---------- */
+const BASE=appUrl.replace(/[^/]*$/,'');
+function novoToken(){const a='abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';const r=new Uint32Array(22);crypto.getRandomValues(r);return Array.from(r,x=>a[x%a.length]).join('')}
+function linkKm(c){return BASE+'enviar.html?t='+c.token}
+const linkSyncing=new Set();
+function syncLinks(){
+  if(!(S.ready.veiculos&&S.ready.clientes))return;
+  const eid=S.eid;
+  S.clientes.forEach(c=>{
+    if(!c.veiculoId&&!c.token)return;
+    const v=veic(c.veiculoId);
+    const token=c.token||novoToken();
+    const dados={eid,cid:c.id,vid:c.veiculoId||'',nome:String(c.nome||'').split(' ')[0],empresa:S.eNome,modelo:v?v.modelo:'',placa:v?v.placa:'',kmAtual:v?Number(v.kmAtual)||0:0,ativo:!!v};
+    const chave=JSON.stringify(dados);
+    if(c.token&&c.linkKey===chave)return;
+    if(linkSyncing.has(c.id))return;linkSyncing.add(c.id);
+    fs.collection('links').doc(token).set(dados)
+      .then(()=>col('clientes').doc(c.id).update({token,linkKey:chave}))
+      .catch(()=>{}).finally(()=>linkSyncing.delete(c.id));
+  });
+}
+/* Fotos de painel enviadas pelos clientes: atualiza o KM do veículo */
+const envProc=new Set();
+function processarEnvios(){
+  if(!(S.ready.veiculos&&S.ready.clientes)||!S.novos)return;
+  S.novos.forEach(d=>{
+    if(envProc.has(d.id))return;envProc.add(d.id);
+    const e=d.data(), v=veic(e.vid), c=S.clientes.find(x=>x.id===e.cid);
+    const foto={id:d.id,data:e.data,km:e.km};
+    const jobs=[d.ref.update({novo:false})];
+    if(v){const up={ultimaFoto:foto};if(e.km>(Number(v.kmAtual)||0))up.kmAtual=e.km;jobs.push(col('veiculos').doc(v.id).update(up))}
+    if(c)jobs.push(col('clientes').doc(c.id).update({ultimoKmRecebido:e.data}));
+    Promise.all(jobs).then(()=>{
+      toast(`Foto do painel recebida${v?': '+v.modelo:''} · ${fmtKm(e.km)} km`);
+      if(v)col('envios').where('vid','==',v.id).get().then(s=>{
+        const ant=s.docs.sort((a,b)=>String(b.data().criadoEm).localeCompare(String(a.data().criadoEm))).slice(3);
+        ant.forEach(x=>x.ref.delete().catch(()=>{}));
+      }).catch(()=>{});
+    }).catch(()=>envProc.delete(d.id));
+  });
+}
+function kmPend(c){
+  if(!c.veiculoId||!veic(c.veiculoId)||!c.telefone)return null;
+  const base=c.ultimoKmRecebido||c.kmDesde;
+  const desdeRec=base?daysBetween(base,todayStr()):999;
+  const desdePed=c.ultimoPedidoKm?daysBetween(c.ultimoPedidoKm,todayStr()):999;
+  if(desdeRec<15||desdePed<3)return null;
+  return {desdeRec,pedido:c.ultimoPedidoKm};
+}
+function waKmLink(c){
+  const v=veic(c.veiculoId);
+  const msg=`Olá, ${String(c.nome).split(' ')[0]}! Aqui é da ${S.eNome}. Está na hora de enviar a foto do painel${v?' do '+v.modelo+' ('+v.placa+')':''} com a quilometragem. É rápido: abra o link, tire a foto e confirme o KM.\n${linkKm(c)}\nObrigado!`;
+  return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(msg);
+}
+function kmCard(c){
+  const v=veic(c.veiculoId), p=kmPend(c);
+  const quando=c.ultimoKmRecebido?`Última foto há ${p.desdeRec} dias`:'Ainda não enviou foto';
+  return `<div class="card warn">
+    <div class="row"><div style="min-width:0"><div class="title">${esc(c.nome)}</div><div class="sub">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtKm(v.kmAtual)} km</div></div><span class="pill warn">${p.pedido?'Pedir de novo':'Pedir foto'}</span></div>
+    <div class="sub">${quando}${p.pedido?' · último pedido em '+fmtDate(p.pedido):''}</div>
+    <div class="actions">${c.token?`<a class="btn wa" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto no WhatsApp</a>`:'<button type="button" disabled>Preparando link…</button>'}</div>
+  </div>`;
 }
 
 /* ---------- Gravação ---------- */
@@ -349,8 +418,10 @@ function veic(id){return S.veiculos.find(v=>v.id===id)}
 function waNum(t){const tel=String(t||'').replace(/\D/g,'');return tel.length<=11?'55'+tel:tel}
 function waLink(c){
   const v=veic(c.veiculoId), cb=cobr(c);
-  const quando=cb.dias<0?`que venceu em ${fmtDate(c.proximoVencimento)}`:cb.dias===0?'que vence hoje':`que vence em ${fmtDate(c.proximoVencimento)}`;
-  const msg=`Olá, ${String(c.nome).split(' ')[0]}! Aqui é da ${S.eNome}. Passando para lembrar do pagamento da locação${v?' do '+v.modelo+' ('+v.placa+')':''}, no valor de ${fmtR(c.valor)}, ${quando}. Qualquer dúvida estou à disposição.`;
+  const nome=String(c.nome).split(' ')[0], loc=v?' do '+v.modelo+' ('+v.placa+')':'';
+  const msg=cb.dias<0
+    ?`Olá, ${nome}! Aqui é da ${S.eNome}. O pagamento da locação${loc}, no valor de ${fmtR(c.valor)}, venceu em ${fmtDate(c.proximoVencimento)} e ainda está em aberto (${-cb.dias} ${-cb.dias===1?'dia':'dias'} de atraso). Pode verificar, por favor? Qualquer dúvida estou à disposição.`
+    :`Olá, ${nome}! Aqui é da ${S.eNome}. Passando para lembrar do pagamento da locação${loc}, no valor de ${fmtR(c.valor)}, ${cb.dias===0?'que vence hoje':'que vence em '+fmtDate(c.proximoVencimento)}. Qualquer dúvida estou à disposição.`;
   return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(msg);
 }
 
@@ -362,7 +433,9 @@ function vCard(v,compact){
     <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}</div></div></div><span class="pill ${o.st}">${esc(o.txt)}</span></div>
     <div class="meter" aria-hidden="true"><span style="width:${Math.round(o.usado*100)}%"></span></div>
     <div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Trocar em ${fmtKm(o.kmProx)} km${o.dataProx?' ou '+fmtDate(o.dataProx):''}</span></div>
+    ${v.ultimaFoto?`<div class="sub">Foto do painel: ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km</div>`:''}
     <div class="actions">
+      ${v.ultimaFoto?`<button type="button" data-act="foto" data-id="${v.id}">Ver foto</button>`:''}
       <button type="button" data-act="km" data-id="${v.id}">Atualizar KM</button>
       <button type="button" data-act="trocou" data-id="${v.id}"${o.st==='ok'?'':' class="primary"'}>Óleo trocado</button>
       ${compact?'':`<button type="button" data-act="editV" data-id="${v.id}">Editar</button>`}
@@ -373,10 +446,12 @@ function cCard(c,compact){
   return `<div class="card ${cb.st}">
     <div class="row"><div style="min-width:0"><div class="title">${esc(c.nome)}</div><div class="sub">${v?esc(v.modelo)+' · '+esc(v.placa):'Sem veículo'} · ${FREQ[c.frequencia]||''} ${fmtR(c.valor)}</div></div><span class="pill ${cb.st}">${esc(cb.txt)}</span></div>
     <div class="actions">
-      ${c.telefone?`<a class="btn wa" href="${waLink(c)}" target="_blank" rel="noopener">Cobrar no WhatsApp</a>`:''}
+      ${c.telefone?`<a class="btn wa" href="${waLink(c)}" target="_blank" rel="noopener" data-wa="cob" data-id="${c.id}">${c.ultimaCobranca===todayStr()?'Cobrar de novo':'Cobrar no WhatsApp'}</a>`:''}
       <button type="button" data-act="pago" data-id="${c.id}">Recebi</button>
       ${compact?'':`<button type="button" data-act="editC" data-id="${c.id}">Editar</button>`}
+      ${!compact&&c.token&&c.telefone&&veic(c.veiculoId)?`<a class="btn" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto do KM</a>`:''}
     </div>
+    ${c.ultimaCobranca===todayStr()?'<div class="sub">✓ Cobrança enviada hoje</div>':''}
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
 }
@@ -395,7 +470,8 @@ function render(){
   const oleoAlert=S.veiculos.filter(v=>oleo(v).st!=='ok').sort((a,b)=>oleo(a).kmRest-oleo(b).kmRest);
   const cobAlert=S.clientes.filter(c=>cobr(c).st!=='ok').sort((a,b)=>cobr(a).dias-cobr(b).dias);
   const atras=S.clientes.filter(c=>cobr(c).dias<0);
-  const n=oleoAlert.length+cobAlert.length;
+  const kmLista=S.clientes.filter(c=>kmPend(c)).sort((a,b)=>kmPend(b).desdeRec-kmPend(a).desdeRec);
+  const n=oleoAlert.length+cobAlert.filter(c=>c.ultimaCobranca!==todayStr()).length+kmLista.length;
   const bd=$('#badge');bd.hidden=!n;bd.textContent=n;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===S.tab)));
   $('#fab').textContent=S.tab==='clientes'?'+ Cliente':S.tab==='veiculos'?'+ Veículo':S.tab==='locadoras'?'+ Locadora':'+ Novo';
@@ -420,6 +496,8 @@ function render(){
       ${vazio?'<div class="note">Comece cadastrando seus veículos na aba <b>Veículos</b> e depois os clientes que estão com eles na aba <b>Clientes</b>. Os avisos aparecem aqui.</div>':''}
       <h2>Cobranças <span class="count">${cobAlert.length}</span></h2>
       <div class="list">${cobAlert.length?cobAlert.map(c=>cCard(c,true)).join(''):'<div class="empty">Nenhuma cobrança vencendo nos próximos 3 dias.</div>'}</div>
+      <h2>Foto do KM <span class="count">${kmLista.length}</span></h2>
+      <div class="list">${kmLista.length?kmLista.map(kmCard).join(''):'<div class="empty">Nenhum pedido de foto para hoje. Os clientes recebem o pedido a cada 15 dias.</div>'}</div>
       <h2>Troca de óleo <span class="count">${oleoAlert.length}</span></h2>
       <div class="list">${oleoAlert.length?oleoAlert.map(x=>vCard(x,true)).join(''):'<div class="empty">Todos os veículos estão com o óleo em dia.</div>'}</div>`;
   }else if(S.tab==='veiculos'){
@@ -485,9 +563,10 @@ function clienteForm(c){
     <label class="full">Próximo vencimento<input id="fc-venc" name="proximoVencimento" type="date" required value="${esc(c.proximoVencimento)}"></label>
   </div>${formBtns(isNew)}</form>`,root=>{
     root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
-      const d={...(isNew?{}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento')};
+      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento')};
+      if(!isNew&&d.veiculoId!==c.veiculoId)d.kmDesde=todayStr();
       save('clientes',c.id,d);closeSheet();toast(isNew?'Cliente cadastrado':'Cliente salvo');});
-    armDelete(root,()=>removeDoc('clientes',c.id));
+    armDelete(root,()=>{removeDoc('clientes',c.id);if(c.token)fs.collection('links').doc(c.token).delete().catch(()=>{})});
   });
 }
 function kmForm(v){
@@ -594,7 +673,9 @@ function locadoraForm(l){
   });
 }
 async function excluirLocadora(l){
-  for(const c of ['veiculos','clientes','config']){
+  const ls=await fs.collection('links').where('eid','==',l.id).get();
+  await Promise.all(ls.docs.map(d=>d.ref.delete()));
+  for(const c of ['veiculos','clientes','config','envios']){
     const s=await fs.collection(`empresas/${l.id}/${c}`).get();
     await Promise.all(s.docs.map(d=>d.ref.delete()));
   }
@@ -625,6 +706,8 @@ let tt;function toast(m){clearTimeout(tt);let t=$('.toast');if(!t){t=document.cr
 document.addEventListener('click',e=>{
   const tab=e.target.closest('nav.tabs button');
   if(tab){S.tab=tab.dataset.tab;if(S.tab==='locadoras'&&S.eid!==S.user.uid)openTenant(S.user.uid,S.meuNome);render();window.scrollTo(0,0);return}
+  const wa=e.target.closest('[data-wa]');
+  if(wa){const f=wa.dataset.wa==='km'?{ultimoPedidoKm:todayStr()}:{ultimaCobranca:todayStr()};col('clientes').doc(wa.dataset.id).update(f).catch(()=>{});return}
   const b=e.target.closest('[data-act]');if(!b)return;
   const id=b.dataset.id,act=b.dataset.act;
   const loc=()=>S.locadoras.find(l=>l.id===id);
@@ -636,7 +719,20 @@ document.addEventListener('click',e=>{
   else if(act==='abrirL'){const l=loc();S.tab='avisos';openTenant(l.id,l.empresa);window.scrollTo(0,0)}
   else if(act==='editL')locadoraForm(loc());
   else if(act==='resetL')resetLocadora(loc());
+  else if(act==='foto')verFoto(veic(id));
 });
+async function verFoto(v){
+  openSheet(`<h3>Foto do painel</h3><p class="sub" style="margin-top:-6px">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km</p>
+  <div id="fotoBox" class="empty">Carregando foto…</div>
+  <div class="form-actions"><span></span><button type="button" data-close>Fechar</button></div>`);
+  try{
+    const d=await col('envios').doc(v.ultimaFoto.id).get();
+    const box=$('#fotoBox');if(!box)return;
+    if(!d.exists){box.textContent='A foto não está mais disponível.';return}
+    box.className='';box.innerHTML='<img alt="Foto do painel" style="width:100%;border-radius:10px;display:block">';
+    box.firstChild.src=d.data().foto;
+  }catch(x){const box=$('#fotoBox');if(box)box.textContent='Não foi possível carregar a foto.'}
+}
 $('#fab').addEventListener('click',()=>S.tab==='clientes'?clienteForm():S.tab==='veiculos'?veiculoForm():S.tab==='locadoras'?locadoraForm():novoMenu());
 $('#acct').addEventListener('click',contaSheet);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet()});

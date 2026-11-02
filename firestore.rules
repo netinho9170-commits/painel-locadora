@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // TROQUE pelo e-mail do administrador (o mesmo do config.js), tudo em minúsculas.
+    // E-mail do administrador (o mesmo do config.js), tudo em minúsculas.
     function adminEmail() { return 'netinho9170@gmail.com'; }
 
     function logado() { return request.auth != null; }
@@ -20,9 +20,32 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Dados de cada locadora (veículos e clientes): só ela mesma e o administrador.
+    // Dados de cada locadora (veículos, clientes, fotos): só ela mesma e o administrador.
     match /empresas/{empresaId}/{documento=**} {
       allow read, write: if isAdmin() || (locadoraAtiva() && request.auth.uid == empresaId);
+    }
+
+    // Link exclusivo do cliente para mandar a foto do painel.
+    // Quem tem o link consegue abrir só aquele link (não dá para listar os outros).
+    match /links/{token} {
+      allow get: if true;
+      allow list: if isAdmin() || (locadoraAtiva() && resource.data.eid == request.auth.uid);
+      allow create: if isAdmin() || (locadoraAtiva() && request.resource.data.eid == request.auth.uid);
+      allow update: if isAdmin() || (locadoraAtiva() && resource.data.eid == request.auth.uid && request.resource.data.eid == request.auth.uid);
+      allow delete: if isAdmin() || (locadoraAtiva() && resource.data.eid == request.auth.uid);
+    }
+
+    // Envio da foto pelo cliente (sem login), validado pelo link.
+    match /empresas/{empresaId}/envios/{envioId} {
+      allow create: if request.resource.data.keys().hasOnly(['token','cid','vid','km','foto','data','criadoEm','novo'])
+        && request.resource.data.km is number && request.resource.data.km > 0 && request.resource.data.km < 10000000
+        && request.resource.data.foto is string && request.resource.data.foto.size() < 900000
+        && request.resource.data.novo == true
+        && request.resource.data.token is string
+        && exists(/databases/$(database)/documents/links/$(request.resource.data.token))
+        && get(/databases/$(database)/documents/links/$(request.resource.data.token)).data.eid == empresaId
+        && get(/databases/$(database)/documents/links/$(request.resource.data.token)).data.cid == request.resource.data.cid
+        && get(/databases/$(database)/documents/links/$(request.resource.data.token)).data.ativo == true;
     }
   }
 }

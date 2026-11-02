@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Foto do painel</title>
+<meta name="theme-color" content="#C9780A">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@600&display=swap">
+<style>
+/* Layout: uma coluna, um passo de cada vez: foto, KM, enviar */
+:root{
+  --bg:#F3F4F6; --surface:#FFFFFF; --line:#DDE1E7; --fg:#1B2230; --muted:#5E6878;
+  --accent:#C9780A; --accent-ink:#FFFFFF; --ok:#1F8A4C; --ok-soft:#E3F4EA; --bad:#C2352B; --plate-blue:#1D3F94;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12161D; --surface:#1B212B; --line:#2B3340; --fg:#E7EAEF; --muted:#98A2B2;
+  --accent:#F0A12E; --accent-ink:#1A1205; --ok:#4CC27F; --ok-soft:#163223; --bad:#F06A5E; --plate-blue:#2E5BC9; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg)}
+body{margin:0;font-family:var(--f-body);font-size:16px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 40px}
+.wrap{max-width:440px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--f-display);font-size:30px;line-height:1.05;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.veh{display:flex;align-items:center;gap:12px}
+.plate{display:inline-flex;flex-direction:column;border:1.5px solid var(--fg);border-radius:4px;overflow:hidden;background:#FFFFFF;color:#111;min-width:92px;text-align:center;flex:none}
+.plate i{display:block;background:var(--plate-blue);color:#fff;font-style:normal;font-size:7px;letter-spacing:.12em;padding:1px 0;font-weight:600}
+.plate b{font-family:var(--f-mono);font-size:15px;letter-spacing:.06em;padding:1px 6px}
+label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;color:var(--muted)}
+input[type=number]{font:inherit;font-size:22px;font-family:var(--f-mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+.shot{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:150px;border:2px dashed var(--line);border-radius:12px;background:var(--bg);color:var(--fg);font-weight:600;cursor:pointer;text-align:center;padding:12px;overflow:hidden}
+.shot img{max-width:100%;max-height:260px;border-radius:8px}
+.shot svg{width:34px;height:34px;color:var(--accent)}
+button{font:inherit;font-size:17px;font-weight:600;border-radius:12px;border:0;background:var(--accent);color:var(--accent-ink);padding:14px;cursor:pointer;width:100%}
+button:disabled{opacity:.6}
+button:focus-visible,input:focus-visible,.shot:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.err{color:var(--bad);font-size:14px}
+.ok{background:var(--ok-soft);color:var(--ok);border-radius:14px;padding:22px 16px;text-align:center;font-weight:600}
+.ok b{display:block;font-family:var(--f-display);font-size:28px;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="sub" style="text-align:center;margin-top:30vh">Carregando…</div></div>
+
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtKm=n=>(Number(n)||0).toLocaleString('pt-BR');
+const hoje=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const app=$('#app');
+const fim=(t,m)=>{app.innerHTML=`<div class="ok"><b>${esc(t)}</b>${esc(m)}</div>`};
+const token=new URLSearchParams(location.search).get('t')||'';
+const CFG=window.LOCADORA_CONFIG||{};
+if(!window.firebase||!CFG.firebase||!/^[A-Za-z0-9]{10,40}$/.test(token)){fim('Link inválido','Peça um novo link para a locadora.');return}
+firebase.initializeApp(CFG.firebase);
+const fs=firebase.firestore();
+
+fs.collection('links').doc(token).get().then(d=>{
+  const L=d.exists?d.data():null;
+  if(!L||!L.ativo){fim('Link inválido','Este link não está mais ativo. Peça um novo para a locadora.');return}
+  render(L);
+}).catch(()=>fim('Sem conexão','Verifique a internet e abra o link de novo.'));
+
+function render(L){
+  app.innerHTML=`
+    <div><h1>Foto do painel</h1><div class="sub">Olá, ${esc(L.nome)}! A ${esc(L.empresa)} pede a foto do painel com a quilometragem.</div></div>
+    <div class="card">
+      <div class="veh"><span class="plate"><i>BRASIL</i><b>${esc(L.placa)}</b></span><div><div style="font-weight:600">${esc(L.modelo)}</div><div class="sub">Último KM registrado: ${fmtKm(L.kmAtual)}</div></div></div>
+      <label class="shot" for="foto" id="shot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></svg><span>1. Toque aqui e tire a foto do painel</span></label><input id="foto" type="file" accept="image/*" capture="environment" hidden>
+      <label>2. Quilometragem que aparece no painel<input id="km" type="number" inputmode="numeric" min="0" placeholder="Ex.: ${fmtKm((Number(L.kmAtual)||0)+500).replace(/\D/g,'')}"></label>
+      <div class="err" id="err" role="alert"></div>
+      <button type="button" id="enviar">Enviar</button>
+    </div>
+    <div class="sub" style="text-align:center">A foto vai direto para a locadora.</div>`;
+  let foto=null;
+  $('#km').addEventListener('input',()=>{$('#err').textContent=''});
+  $('#foto').addEventListener('change',async e=>{
+    const f=e.target.files[0];if(!f)return;
+    $('#err').textContent='';
+    try{foto=await comprimir(f);$('#shot').innerHTML=`<img alt="Foto do painel" src="${foto}"><span class="sub">Toque para tirar outra</span>`}
+    catch(x){$('#err').textContent='Não foi possível ler a foto. Tente de novo.'}
+  });
+  $('#enviar').addEventListener('click',async()=>{
+    const err=$('#err'),b=$('#enviar');err.textContent='';
+    const km=Math.round(Number($('#km').value));
+    if(!foto){err.textContent='Tire a foto do painel primeiro.';return}
+    if(!$('#km').value||!(km>0)){err.textContent='Digite a quilometragem do painel.';return}
+    if(km<(Number(L.kmAtual)||0)){err.textContent=`O número está menor que o último registrado (${fmtKm(L.kmAtual)} km). Confira o painel.`;return}
+    if(km>(Number(L.kmAtual)||0)+20000){err.textContent='O número parece alto demais. Confira o painel.';return}
+    b.disabled=true;b.textContent='Enviando…';
+    try{
+      await fs.collection(`empresas/${L.eid}/envios`).add({token,cid:L.cid,vid:L.vid,km,foto,data:hoje(),criadoEm:new Date().toISOString(),novo:true});
+      fim('Recebido, obrigado!',`Quilometragem ${fmtKm(km)} km enviada para a ${L.empresa}.`);
+    }catch(x){b.disabled=false;b.textContent='Enviar';err.textContent='Não foi possível enviar. Verifique a internet e tente de novo.'}
+  });
+}
+function comprimir(file){
+  return new Promise((res,rej)=>{
+    const img=new Image();const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let w=img.naturalWidth,h=img.naturalHeight;const max=1280;
+      if(Math.max(w,h)>max){const k=max/Math.max(w,h);w=Math.round(w*k);h=Math.round(h*k)}
+      const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      let q=.7,out=c.toDataURL('image/jpeg',q);
+      while(out.length>700000&&q>.3){q-=.1;out=c.toDataURL('image/jpeg',q)}
+      res(out);
+    };
+    img.onerror=rej;img.src=url;
+  });
+}
+})();
+</script>
+</body>
+</html>
