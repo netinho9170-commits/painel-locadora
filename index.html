@@ -351,7 +351,7 @@ function processarEnvios(){
     Promise.all(jobs).then(()=>{
       toast(`Foto do painel recebida${v?': '+v.modelo:''} · ${fmtKm(e.km)} km`);
       if(v)col('envios').where('vid','==',v.id).get().then(s=>{
-        const ant=s.docs.sort((a,b)=>String(b.data().criadoEm).localeCompare(String(a.data().criadoEm))).slice(3);
+        const ant=s.docs.filter(x=>x.id!==d.id); // guarda só a foto mais recente
         ant.forEach(x=>x.ref.delete().catch(()=>{}));
       }).catch(()=>{});
     }).catch(()=>envProc.delete(d.id));
