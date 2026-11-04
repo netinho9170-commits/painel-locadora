@@ -40,6 +40,7 @@ const cobHoje = c => !quitado(c) && c.proximoVencimento && dias(hoje, c.proximoV
 const PRAZO_FOTO = 2; // dias para responder ao pedido antes de virar "atrasada"
 // null (em dia ou aguardando), 'pedir' ou 'atrasada'
 function kmSituacao(c, veiculos) {
+  if (c.modalidade === 'compra' && Number(c.totalParcelas) > 0) return null; // venda parcelada: sem foto do KM
   if (!c.veiculoId || !veiculos.some(v => v.id === c.veiculoId) || !c.telefone) return null;
   const base = c.ultimoKmRecebido || c.kmDesde;
   const desdeRec = base ? dias(base, hoje) : 999;
@@ -58,7 +59,7 @@ async function processar(uid, nome, extras = []) {
   const clientes = (await db.collection(`empresas/${uid}/clientes`).get()).docs.map(d => ({ id: d.id, ...d.data() }));
 
   // Veículos cuja troca de óleo é responsabilidade do cliente não geram aviso
-  const oleoDoCliente = new Set(clientes.filter(c => c.oleoPorConta === 'cliente' && c.veiculoId).map(c => c.veiculoId));
+  const oleoDoCliente = new Set(clientes.filter(c => (c.oleoPorConta === 'cliente' || (c.modalidade === 'compra' && Number(c.totalParcelas) > 0)) && c.veiculoId).map(c => c.veiculoId));
   const oleo = veiculos.filter(v => !oleoDoCliente.has(v.id) && oleoAviso(v)).length;
   const atras = clientes.filter(cobAtrasada).length;
   const vence = clientes.filter(cobHoje).length;
