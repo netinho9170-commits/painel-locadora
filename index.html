@@ -431,7 +431,12 @@ function removeDoc(c,id){col(c).doc(id).delete().catch(()=>toast('Não foi poss�
 function clean(d){const o={...d};delete o.id;return o}
 
 /* ---------- Regras de óleo e cobrança ---------- */
+/* Cliente que cuida da troca de óleo do veículo (sem avisos para a locadora) */
+function oleoCliente(v){return S.clientes.find(c=>c.veiculoId===v.id&&c.oleoPorConta==='cliente')}
+function semDadosOleo(v){return v.kmUltimaTroca===undefined||v.kmUltimaTroca===null||v.kmUltimaTroca===''}
+function oleoSt(v){return oleoCliente(v)?'ok':oleo(v).st}
 function oleo(v){
+  if(semDadosOleo(v))return {st:'warn',kmRest:0,kmProx:null,dataProx:null,diasRest:null,usado:0,txt:'Informe a última troca',semDados:true};
   const intKm=Number(v.intervaloKm)||1000, intM=Number(v.intervaloMeses)||3;
   const kmProx=(Number(v.kmUltimaTroca)||0)+intKm;
   const kmRest=kmProx-(Number(v.kmAtual)||0);
@@ -471,16 +476,18 @@ function waLink(c){
 /* ---------- Telas ---------- */
 function plate(p){return `<span class="plate"><i>BRASIL</i><b>${esc(p||'—')}</b></span>`}
 function vCard(v,compact){
-  const o=oleo(v), cli=S.clientes.find(c=>c.veiculoId===v.id);
-  return `<div class="card ${o.st}">
-    <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}</div></div></div><span class="pill ${o.st}">${esc(o.txt)}</span></div>
-    <div class="meter" aria-hidden="true"><span style="width:${Math.round(o.usado*100)}%"></span></div>
-    <div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Trocar em ${fmtKm(o.kmProx)} km${o.dataProx?' ou '+fmtDate(o.dataProx):''}</span></div>
+  const o=oleo(v), cli=S.clientes.find(c=>c.veiculoId===v.id), oc=oleoCliente(v);
+  return `<div class="card ${oc?'ok':o.st}">
+    <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}</div></div></div><span class="pill ${oc?'ok':o.st}">${oc?'Óleo: cliente':esc(o.txt)}</span></div>
+    ${oc?`<div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Troca de óleo por conta de ${esc(String(oc.nome).split(' ')[0])}</span></div>`:
+    o.semDados?`<div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Sem dados da última troca</span></div>`:
+    `<div class="meter" aria-hidden="true"><span style="width:${Math.round(o.usado*100)}%"></span></div>
+    <div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Trocar em ${fmtKm(o.kmProx)} km${o.dataProx?' ou '+fmtDate(o.dataProx):''}</span></div>`}
     ${v.ultimaFoto?`<div class="sub">Foto do painel: ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km · ${v.ultimaFoto.auto?'lido na foto':'<b style="color:var(--warn)">digitado pelo cliente</b>'}</div>`:''}
     <div class="actions">
       ${v.ultimaFoto?`<button type="button" data-act="foto" data-id="${v.id}">Ver foto</button>`:''}
       <button type="button" data-act="km" data-id="${v.id}">Atualizar KM</button>
-      <button type="button" data-act="trocou" data-id="${v.id}"${o.st==='ok'?'':' class="primary"'}>Óleo trocado</button>
+      ${oc?'':o.semDados?`<button type="button" data-act="editV" data-id="${v.id}" class="primary">Informar última troca</button>`:`<button type="button" data-act="trocou" data-id="${v.id}"${o.st==='ok'?'':' class="primary"'}>Óleo trocado</button>`}
       ${compact?'':`<button type="button" data-act="editV" data-id="${v.id}">Editar</button>`}
     </div></div>`;
 }
@@ -495,7 +502,7 @@ function cCard(c,compact){
       ${!compact&&c.token&&c.telefone&&veic(c.veiculoId)?`<a class="btn" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto do KM</a>`:''}
     </div>
     ${c.ultimaCobranca===todayStr()?'<div class="sub">✓ Cobrança enviada hoje</div>':''}
-    ${!compact&&veic(c.veiculoId)?(()=>{const p=kmPend(c);return `<div class="sub">Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
+    ${!compact&&veic(c.veiculoId)?(()=>{const p=kmPend(c);return `<div class="sub">${c.oleoPorConta==='cliente'?'Troca de óleo por conta do cliente · ':''}Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
 }
@@ -544,7 +551,7 @@ function lCard(l){
 }
 function render(){
   if(!S.eid)return;
-  const oleoAlert=S.veiculos.filter(v=>oleo(v).st!=='ok').sort((a,b)=>oleo(a).kmRest-oleo(b).kmRest);
+  const oleoAlert=S.veiculos.filter(v=>oleoSt(v)!=='ok').sort((a,b)=>oleo(a).kmRest-oleo(b).kmRest);
   const cobAlert=S.clientes.filter(c=>cobr(c).st!=='ok').sort((a,b)=>cobr(a).dias-cobr(b).dias);
   const atras=S.clientes.filter(c=>cobr(c).dias<0);
   const kmLista=S.clientes.filter(c=>kmPend(c)).sort((a,b)=>((kmPend(a).st==='atrasada'?0:1)-(kmPend(b).st==='atrasada'?0:1))||(kmPend(b).desdeRec-kmPend(a).desdeRec));
@@ -587,7 +594,7 @@ function render(){
       <div class="list">${oleoAlert.length?oleoAlert.map(x=>vCard(x,true)).join(''):'<div class="empty">Todos os veículos estão com o óleo em dia.</div>'}</div>`;
   }else if(S.tab==='veiculos'){
     const ord={bad:0,warn:1,ok:2};
-    const list=[...S.veiculos].sort((a,b)=>(ord[oleo(a).st]-ord[oleo(b).st])||String(a.modelo).localeCompare(String(b.modelo)));
+    const list=[...S.veiculos].sort((a,b)=>(ord[oleoSt(a)]-ord[oleoSt(b)])||String(a.modelo).localeCompare(String(b.modelo)));
     v.innerHTML=`<h2>Frota <span class="count">${list.length}</span></h2><div class="list">${list.length?list.map(x=>vCard(x,false)).join(''):'<div class="empty">Nenhum veículo ainda. Toque em <b>+ Veículo</b> para cadastrar o primeiro carro ou moto.</div>'}</div>`;
   }else{
     const list=[...S.clientes].sort((a,b)=>cobr(a).dias-cobr(b).dias);
@@ -616,21 +623,27 @@ const formBtns=(isNew,saveLabel)=>`<div class="form-actions">${isNew?'<span></sp
 
 function veiculoForm(v){
   const isNew=!v;v=v||{tipo:'carro',intervaloKm:5000,intervaloMeses:6,dataUltimaTroca:todayStr()};
+  const oc=isNew?null:oleoCliente(v);
   openSheet(`<h3>${isNew?'Novo veículo':'Editar veículo'}</h3>
   <form id="f"><div class="grid">
     <div class="full seg"><label><input type="radio" name="tipo" value="carro" ${v.tipo!=='moto'?'checked':''}> Carro</label><label><input type="radio" name="tipo" value="moto" ${v.tipo==='moto'?'checked':''}> Moto</label></div>
     <label class="full">Modelo<input id="fv-modelo" name="modelo" required value="${esc(v.modelo)}" placeholder="Ex.: Honda CG 160"></label>
     <label>Placa<input id="fv-placa" name="placa" required value="${esc(v.placa)}" placeholder="ABC1D23" style="text-transform:uppercase;font-family:var(--f-mono)"></label>
     <label>KM atual<input id="fv-km" name="kmAtual" type="number" inputmode="numeric" min="0" required value="${esc(v.kmAtual??'')}"></label>
-    <label>KM na última troca<input id="fv-kmt" name="kmUltimaTroca" type="number" inputmode="numeric" min="0" required value="${esc(v.kmUltimaTroca??'')}"></label>
-    <label>Data da última troca<input id="fv-dt" name="dataUltimaTroca" type="date" required value="${esc(v.dataUltimaTroca)}"></label>
+    ${oc?`<div class="full note" style="margin:0">A troca de óleo deste veículo é por conta do cliente <b>${esc(oc.nome)}</b>. Não precisa informar os dados da troca. Para voltar a receber os avisos, mude no cadastro do cliente.</div>`:`
+    <label>KM na última troca<input id="fv-kmt" name="kmUltimaTroca" type="number" inputmode="numeric" min="0" value="${esc(v.kmUltimaTroca??'')}"></label>
+    <label>Data da última troca<input id="fv-dt" name="dataUltimaTroca" type="date" value="${esc(v.dataUltimaTroca)}"></label>
+    <div class="full sub" style="margin-top:-4px">Se a troca de óleo for por conta do cliente, pode deixar a última troca em branco e marcar <b>Cliente é responsável</b> no cadastro do cliente.</div>
     <label>Trocar a cada (km)<input id="fv-ik" name="intervaloKm" type="number" inputmode="numeric" min="100" required value="${esc(v.intervaloKm)}"></label>
-    <label>Ou a cada (meses)<input id="fv-im" name="intervaloMeses" type="number" inputmode="numeric" min="1" required value="${esc(v.intervaloMeses)}"></label>
+    <label>Ou a cada (meses)<input id="fv-im" name="intervaloMeses" type="number" inputmode="numeric" min="1" required value="${esc(v.intervaloMeses)}"></label>`}
   </div>${formBtns(isNew)}</form>`,root=>{
-    root.querySelectorAll('input[name=tipo]').forEach(r=>r.addEventListener('change',()=>{if(isNew){root.querySelector('#fv-ik').value=r.value==='moto'?1500:5000;root.querySelector('#fv-im').value=r.value==='moto'?3:6}}));
+    root.querySelectorAll('input[name=tipo]').forEach(r=>r.addEventListener('change',()=>{if(isNew&&root.querySelector('#fv-ik')){root.querySelector('#fv-ik').value=r.value==='moto'?1500:5000;root.querySelector('#fv-im').value=r.value==='moto'?3:6}}));
     root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
-      const d={tipo:fd.get('tipo'),modelo:fd.get('modelo').trim(),placa:fd.get('placa').trim().toUpperCase(),kmAtual:+fd.get('kmAtual'),kmUltimaTroca:+fd.get('kmUltimaTroca'),dataUltimaTroca:fd.get('dataUltimaTroca'),intervaloKm:+fd.get('intervaloKm'),intervaloMeses:+fd.get('intervaloMeses')};
-      if(d.kmAtual<d.kmUltimaTroca){toast('O KM atual não pode ser menor que o KM da última troca.');return}
+      const d=oc?{...clean(v),tipo:fd.get('tipo'),modelo:fd.get('modelo').trim(),placa:fd.get('placa').trim().toUpperCase(),kmAtual:+fd.get('kmAtual')}
+        :{...(isNew?{}:clean(v)),tipo:fd.get('tipo'),modelo:fd.get('modelo').trim(),placa:fd.get('placa').trim().toUpperCase(),kmAtual:+fd.get('kmAtual'),kmUltimaTroca:+fd.get('kmUltimaTroca'),dataUltimaTroca:fd.get('dataUltimaTroca'),intervaloKm:+fd.get('intervaloKm'),intervaloMeses:+fd.get('intervaloMeses')};
+      if(!oc&&fd.get('kmUltimaTroca')===''){delete d.kmUltimaTroca;if(!fd.get('dataUltimaTroca'))delete d.dataUltimaTroca}
+      else if(!oc&&!fd.get('dataUltimaTroca')){toast('Informe a data da última troca.');return}
+      if(!oc&&d.kmUltimaTroca!==undefined&&d.kmAtual<d.kmUltimaTroca){toast('O KM atual não pode ser menor que o KM da última troca.');return}
       save('veiculos',v.id,d);closeSheet();toast(isNew?'Veículo cadastrado':'Veículo salvo');});
     armDelete(root,()=>removeDoc('veiculos',v.id));
   });
@@ -646,10 +659,11 @@ function clienteForm(c){
     <label>Valor (R$)<input id="fc-valor" name="valor" type="number" inputmode="decimal" min="0" step="0.01" required value="${esc(c.valor??'')}"></label>
     <label>Cobrança<select id="fc-freq" name="frequencia">${Object.entries(FREQ).map(([k,l])=>`<option value="${k}" ${c.frequencia===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label class="full">Próximo vencimento<input id="fc-venc" name="proximoVencimento" type="date" required value="${esc(c.proximoVencimento)}"></label>
+    <div class="full"><div class="sub" style="margin-bottom:6px">Troca de óleo</div><div class="seg"><label><input type="radio" name="oleoPorConta" value="locadora" ${c.oleoPorConta!=='cliente'?'checked':''}> Locadora faz (avisar)</label><label><input type="radio" name="oleoPorConta" value="cliente" ${c.oleoPorConta==='cliente'?'checked':''}> Cliente é responsável</label></div></div>
     <label class="full">Foto do KM a cada (dias)<input id="fc-df" name="diasFoto" type="number" inputmode="numeric" min="1" max="90" required value="${esc(c.diasFoto??15)}"></label>
   </div><p class="sub" style="margin:6px 0 0">Se o cliente não enviar a foto em ${PRAZO_FOTO} dias depois do pedido, aparece como <b>Foto atrasada</b> nos avisos.</p>${formBtns(isNew)}</form>`,root=>{
     root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
-      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento'),diasFoto:Math.max(1,Math.min(90,+fd.get('diasFoto')||15))};
+      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento'),diasFoto:Math.max(1,Math.min(90,+fd.get('diasFoto')||15)),oleoPorConta:fd.get('oleoPorConta')==='cliente'?'cliente':'locadora'};
       if(!isNew&&d.veiculoId!==c.veiculoId)d.kmDesde=todayStr();
       save('clientes',c.id,d);closeSheet();toast(isNew?'Cliente cadastrado':'Cliente salvo');});
     armDelete(root,()=>{removeDoc('clientes',c.id);if(c.token)fs.collection('links').doc(c.token).delete().catch(()=>{})});
