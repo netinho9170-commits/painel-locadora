@@ -248,6 +248,7 @@ auth.onAuthStateChanged(async u=>{
       if(!p){if(!d.metadata.fromCache)acessoRemovido(u);return}
       if(p.ativo!==true){aberto=false;showBlocked('Seu acesso está suspenso. Fale com o administrador do sistema.');return}
       S.meuNome=p.empresa||'Minha locadora';
+      const lim=Number(p.limiteVeiculos)>0?Number(p.limiteVeiculos):null;if(lim!==S.meuLimite){S.meuLimite=lim;if(aberto)render()}
       if(!aberto){aberto=true;precisaTrocar(u.uid).then(t=>t?showTrocarSenha(u):openTenant(u.uid,S.meuNome))}else{$('#empresaNome').textContent=S.meuNome}
     },()=>showBlocked('Não foi possível verificar seu acesso. Verifique a internet e abra o app de novo.')));
   }
@@ -567,6 +568,7 @@ function lCard(l){
   const c=contrato(l), st=!l.ativo?'bad':c?c.st:'ok';
   return `<div class="card ${st}">
     <div class="row"><div style="min-width:0"><div class="title">${esc(l.empresa)}</div><div class="sub">${esc(l.responsavel||'')}${l.responsavel?' · ':''}${esc(l.email)}</div></div><span class="pill ${l.ativo?(c?c.st:'ok'):'bad'}">${!l.ativo?'Suspensa':c&&c.st!=='ok'?esc(c.txt):'Ativa'}</span></div>
+    <div class="sub">Veículos: ${Number(l.limiteVeiculos)>0?'até '+l.limiteVeiculos:'sem limite'}</div>
     <div class="sub">Contrato: ${l.venceContrato?`${PLANOS[l.plano]||''} · de ${fmtData(l.inicioContrato)} até ${fmtData(l.venceContrato)}`:l.plano==='ind'?'indeterminado':'sem prazo definido'}</div>
     ${l.telefone?`<div class="nums">${esc(l.telefone)}${l.criadoEm?' · desde '+fmtDate(l.criadoEm):''}</div>`:''}
     <div class="actions">
@@ -623,7 +625,8 @@ function render(){
   }else if(S.tab==='veiculos'){
     const ord={bad:0,warn:1,ok:2};
     const list=[...S.veiculos].sort((a,b)=>(ord[oleoSt(a)]-ord[oleoSt(b)])||String(a.modelo).localeCompare(String(b.modelo)));
-    v.innerHTML=`<h2>Frota <span class="count">${list.length}</span></h2><div class="list">${list.length?list.map(x=>vCard(x,false)).join(''):'<div class="empty">Nenhum veículo ainda. Toque em <b>+ Veículo</b> para cadastrar o primeiro carro ou moto.</div>'}</div>`;
+    const lim=limiteVeiculos();
+    v.innerHTML=`<h2>Frota <span class="count">${list.length}</span></h2>${lim!==null?`<div class="sub" style="margin:-4px 0 10px;${list.length>=lim?'color:var(--warn);font-weight:600':''}">${list.length} de ${lim} veículos do plano${list.length>=lim?' · limite atingido':''}</div>`:''}<div class="list">${list.length?list.map(x=>vCard(x,false)).join(''):'<div class="empty">Nenhum veículo ainda. Toque em <b>+ Veículo</b> para cadastrar o primeiro carro ou moto.</div>'}</div>`;
   }else{
     const list=[...S.clientes].sort((a,b)=>cobr(a).dias-cobr(b).dias);
     v.innerHTML=`<h2>Clientes <span class="count">${list.length}</span></h2><div class="list">${list.length?list.map(c=>cCard(c,false)).join(''):'<div class="empty">Nenhum cliente ainda. Toque em <b>+ Cliente</b> para cadastrar quem está com um veículo.</div>'}</div>`;
@@ -650,6 +653,7 @@ function armDelete(root,onDel){
 const formBtns=(isNew,saveLabel)=>`<div class="form-actions">${isNew?'<span></span>':'<button type="button" class="danger" data-del>Apagar</button>'}<div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">${saveLabel||'Salvar'}</button></div></div>`;
 
 function veiculoForm(v){
+  if(!v&&limiteAtingido()){avisoLimite();return}
   const isNew=!v;v=v||{tipo:'carro',intervaloKm:5000,intervaloMeses:6,dataUltimaTroca:todayStr()};
   const oc=isNew?null:oleoCliente(v);
   openSheet(`<h3>${isNew?'Novo veículo':'Editar veículo'}</h3>
@@ -723,6 +727,21 @@ function pagoForm(c){
       save('clientes',c.id,{...clean(c),proximoVencimento:prox,historico:hist});closeSheet();toast('Pagamento registrado');});
   });
 }
+/* ---------- Limite de veículos do plano ---------- */
+const SUPORTE_WA=(CFG.suporteWhatsApp||'92982538640').replace(/\D/g,'');
+function limiteVeiculos(){
+  if(S.eid===S.user.uid)return S.isAdmin?null:(S.meuLimite||null);
+  const l=(S.locadoras||[]).find(x=>x.id===S.eid);return l&&Number(l.limiteVeiculos)>0?Number(l.limiteVeiculos):null;
+}
+function limiteAtingido(){const l=limiteVeiculos();return !S.isAdmin&&l!==null&&S.veiculos.length>=l}
+function avisoLimite(){
+  const l=limiteVeiculos();
+  const msg=`Olá! Sou da ${S.eNome} e uso o Giro Frota. Atingi o limite de ${l} veículos do meu plano e quero aumentar.`;
+  openSheet(`<h3>Limite do plano atingido</h3>
+  <p class="sub" style="margin-top:-6px">Seu plano permite cadastrar até <b>${l} veículos</b> e você já tem ${S.veiculos.length}.</p>
+  <div class="note">Para cadastrar mais veículos, fale com a SysHub e mude de plano. Você também pode apagar um veículo que não usa mais.</div>
+  <div class="list" style="margin-top:14px"><a class="btn wa" href="https://wa.me/${SUPORTE_WA.length<=11?'55'+SUPORTE_WA:SUPORTE_WA}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Falar com a SysHub no WhatsApp</a><button type="button" data-close>Fechar</button></div>`);
+}
 function novoMenu(){
   openSheet(`<h3>Cadastrar</h3><div class="list"><button type="button" id="nv" class="primary">Novo veículo</button><button type="button" id="nc">Novo cliente</button><button type="button" data-close>Cancelar</button></div>`,root=>{
     root.querySelector('#nv').onclick=()=>veiculoForm();root.querySelector('#nc').onclick=()=>clienteForm();});
@@ -756,6 +775,7 @@ function locadoraForm(l){
     <label class="full">Responsável<input id="fl-resp" name="responsavel" value="${esc(l.responsavel)}"></label>
     <label class="full">E-mail de acesso<input id="fl-email" name="email" type="email" inputmode="email" required value="${esc(l.email)}" ${isNew?'':'readonly'}></label>
     <label class="full">WhatsApp (com DDD)<input id="fl-tel" name="telefone" type="tel" inputmode="tel" value="${esc(l.telefone)}"></label>
+    <label class="full">Limite de veículos<input id="fl-lim" name="limiteVeiculos" type="number" inputmode="numeric" min="1" max="9999" value="${esc(l.limiteVeiculos??(isNew?10:''))}" placeholder="Em branco = sem limite"></label>
     <label>Período de uso<select id="fl-plano" name="plano">${Object.entries(PLANOS).map(([k,n])=>`<option value="${k}" ${(l.plano||(isNew?'1':'ind'))===k?'selected':''}>${n}</option>`).join('')}</select></label>
     <label>Início<input id="fl-ini" name="inicioContrato" type="date" value="${esc(l.inicioContrato||todayStr())}"></label>
     <div class="full sub" id="fl-vence"></div>
@@ -782,6 +802,7 @@ function locadoraForm(l){
       e.preventDefault();const fd=new FormData(e.target);const err=root.querySelector('#ferr'),b=root.querySelector('#fbtn');err.textContent='';
       const d={empresa:fd.get('empresa').trim(),responsavel:fd.get('responsavel').trim(),telefone:fd.get('telefone').trim(),plano:fd.get('plano'),inicioContrato:fd.get('inicioContrato')||todayStr()};
       d.venceContrato=venceEm(d.plano,d.inicioContrato);
+      d.limiteVeiculos=Number(fd.get('limiteVeiculos'))>0?Math.floor(Number(fd.get('limiteVeiculos'))):null;
       if(!isNew&&d.venceContrato!==l.venceContrato)d.contatoRenovacao=null;
       if(!isNew){
         d.ativo=fd.get('ativo')==='1';
