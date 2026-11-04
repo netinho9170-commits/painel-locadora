@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pagamento · Giro Frota</title>
+<meta name="theme-color" content="#C9780A">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@600&display=swap">
+<style>
+/* Layout: uma coluna, um passo de cada vez: foto, KM, enviar */
+:root{
+  --bg:#F3F4F6; --surface:#FFFFFF; --line:#DDE1E7; --fg:#1B2230; --muted:#5E6878;
+  --accent:#C9780A; --accent-ink:#FFFFFF; --ok:#1F8A4C; --ok-soft:#E3F4EA; --bad:#C2352B; --plate-blue:#1D3F94;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12161D; --surface:#1B212B; --line:#2B3340; --fg:#E7EAEF; --muted:#98A2B2;
+  --accent:#F0A12E; --accent-ink:#1A1205; --ok:#4CC27F; --ok-soft:#163223; --bad:#F06A5E; --plate-blue:#2E5BC9; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg)}
+body{margin:0;font-family:var(--f-body);font-size:16px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 40px}
+.wrap{max-width:440px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--f-display);font-size:30px;line-height:1.05;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.veh{display:flex;align-items:center;gap:12px}
+.plate{display:inline-flex;flex-direction:column;border:1.5px solid var(--fg);border-radius:4px;overflow:hidden;background:#FFFFFF;color:#111;min-width:92px;text-align:center;flex:none}
+.plate i{display:block;background:var(--plate-blue);color:#fff;font-style:normal;font-size:7px;letter-spacing:.12em;padding:1px 0;font-weight:600}
+.plate b{font-family:var(--f-mono);font-size:15px;letter-spacing:.06em;padding:1px 6px}
+label{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;color:var(--muted)}
+input[type=number]{font:inherit;font-size:22px;font-family:var(--f-mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+.shot{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:150px;border:2px dashed var(--line);border-radius:12px;background:var(--bg);color:var(--fg);font-weight:600;cursor:pointer;text-align:center;padding:12px;overflow:hidden}
+.shot img{max-width:100%;max-height:260px;border-radius:8px}
+.shot svg{width:34px;height:34px;color:var(--accent)}
+button{font:inherit;font-size:17px;font-weight:600;border-radius:12px;border:0;background:var(--accent);color:var(--accent-ink);padding:14px;cursor:pointer;width:100%}
+button:disabled{opacity:.6}
+button:focus-visible,input:focus-visible,.shot:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.err{color:var(--bad);font-size:14px}
+.leitura{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--muted);background:var(--bg);border-radius:10px;padding:12px}
+.leitura.ok2{flex-direction:column;align-items:flex-start;gap:2px;background:var(--ok-soft);color:var(--ok);font-weight:600}
+.leitura.ok2 b{font-family:var(--f-mono);font-size:28px;color:var(--fg)}
+.leitura.falha{color:var(--fg);background:var(--bg);border:1px solid var(--line)}
+.spin{width:18px;height:18px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:gira .8s linear infinite;flex:none}
+@keyframes gira{to{transform:rotate(360deg)}}
+.ok{background:var(--ok-soft);color:var(--ok);border-radius:14px;padding:22px 16px;text-align:center;font-weight:600}
+.ok b{display:block;font-family:var(--f-display);font-size:28px;margin-bottom:4px}
+.big{font-family:var(--f-display);font-size:40px;line-height:1}
+.pill{display:inline-block;font-size:13px;font-weight:600;border-radius:999px;padding:3px 10px}
+.pill.bad{background:#FCE5E2;color:var(--bad)} .pill.warn{background:#FFF1D6;color:#B66A00} .pill.okp{background:var(--ok-soft);color:var(--ok)}
+.meter{height:10px;border-radius:99px;background:var(--bg);overflow:hidden;border:1px solid var(--line)}
+.meter span{display:block;height:100%;background:var(--ok)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+textarea{font-family:var(--f-mono);font-size:12px;width:100%;min-height:92px;resize:none;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);color:var(--fg);word-break:break-all}
+.qr{display:flex;justify-content:center;background:#fff;border-radius:12px;padding:12px}
+.qr img,.qr canvas{width:200px;height:200px;image-rendering:pixelated}
+.sec{background:transparent;color:var(--fg);border:1px solid var(--line)}
+a.sec{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:12px;padding:13px}
+.hist{display:flex;flex-direction:column;gap:6px;font-size:14px}
+.hist div{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:6px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="sub" style="text-align:center;margin-top:30vh">Carregando…</div></div>
+
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+/* Página de pagamento do cliente: mostra a parcela da vez e o Pix copia e cola.
+   Funciona a qualquer hora, mesmo quando a locadora está sem internet. */
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtR=n=>(Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const parse=s=>{const[y,m,d]=String(s).split('-').map(Number);return new Date(y,(m||1)-1,d||1)};
+const toStr=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const hoje=()=>toStr(new Date());
+const dias=(a,b)=>Math.round((parse(b)-parse(a))/86400000);
+const fmtData=s=>s?parse(s).toLocaleDateString('pt-BR'):'—';
+const addFreq=(s,f,n)=>{const d=parse(s);if(f==='mensal'){const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+n);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last))}else d.setDate(d.getDate()+n*(f==='quinzenal'?14:7));return toStr(d)};
+const app=$('#app');
+const fim=(t,m)=>{app.innerHTML=`<div class="ok"><b>${esc(t)}</b>${esc(m)}</div>`};
+const token=new URLSearchParams(location.search).get('t')||'';
+const CFG=window.LOCADORA_CONFIG||{};
+if(!window.firebase||!CFG.firebase||!/^[A-Za-z0-9]{10,40}$/.test(token)){fim('Link inválido','Peça um novo link para a locadora.');return}
+firebase.initializeApp(CFG.firebase);
+const fs=firebase.firestore();
+
+fs.collection('links').doc(token).get().then(d=>{
+  const L=d.exists?d.data():null;
+  if(!L||!L.pag){fim('Link inválido','Este link não está mais ativo. Peça um novo para a locadora.');return}
+  render(L);
+}).catch(()=>fim('Sem conexão','Verifique a internet e abra o link de novo.'));
+
+function render(L){
+  const P=L.pag, total=Number(P.total)||0, pagas=Math.min(Number(P.pagas)||0,total||Infinity), compra=total>0;
+  const quitado=compra&&pagas>=total;
+  const d=P.venc?dias(hoje(),P.venc):null;
+  let st='',stc='okp';
+  if(quitado){st='Quitado';stc='okp'}
+  else if(d!==null){if(d<0){st=`Atrasado ${-d} ${-d===1?'dia':'dias'}`;stc='bad'}else if(d===0){st='Vence hoje';stc='bad'}else if(d<=3){st=d===1?'Vence amanhã':`Vence em ${d} dias`;stc='warn'}else{st='Em dia';stc='okp'}}
+  const rest=compra?total-pagas:0;
+  const fimPrev=compra&&!quitado&&P.venc?addFreq(P.venc,P.freq,rest-1):null;
+  const hist=Array.isArray(P.hist)?P.hist:[];
+  app.innerHTML=`
+    <div><h1>${quitado?'Parabéns!':'Pagamento'}</h1><div class="sub">Olá, ${esc(L.nome)}! Aqui você acompanha seus pagamentos à ${esc(L.empresa)}${P.pix&&!quitado?' e paga com Pix a qualquer hora':''}.</div></div>
+    ${L.placa?`<div class="card"><div class="veh"><span class="plate"><i>BRASIL</i><b>${esc(L.placa)}</b></span><div><div style="font-weight:600">${esc(L.modelo)}</div><div class="sub">${compra?'Locação com intenção de compra':'Locação'}</div></div></div>
+      ${compra?`<div><div class="row" style="margin-bottom:6px"><b>${quitado?`${total} de ${total} parcelas pagas`:`Parcela ${pagas+1} de ${total}`}</b><span class="sub">${Math.round(pagas/total*100)}% pago</span></div>
+        <div class="meter"><span style="width:${Math.round(pagas/total*100)}%"></span></div>
+        <div class="sub" style="margin-top:6px">${quitado?'Todas as parcelas foram pagas.':`${pagas} pagas · faltam ${rest} (${fmtR(rest*P.valor)})${fimPrev?' · quitação prevista em '+fmtData(fimPrev):''}`}</div></div>`:''}
+    </div>`:''}
+    ${quitado?`<div class="ok"><b>Veículo quitado!</b>Todas as ${total} parcelas foram pagas. Fale com a ${esc(L.empresa)} para os próximos passos.</div>`:`
+    <div class="card">
+      <div class="row"><span class="sub" style="font-weight:600">Próximo pagamento</span><span class="pill ${stc}">${esc(st)}</span></div>
+      <div class="big">${fmtR(P.valor)}</div>
+      <div class="sub">Vencimento: <b>${fmtData(P.venc)}</b>${P.freq?' · cobrança '+esc(P.freq):''}</div>
+      ${P.pix?`<div class="qr" id="qr" aria-label="QR Code do Pix"></div>
+      <label>Pix copia e cola<textarea id="pix" readonly>${esc(P.pix)}</textarea></label>
+      <button type="button" id="copiar">Copiar código Pix</button>
+      <div class="sub">Abra o app do seu banco, escolha <b>Pix copia e cola</b> e cole o código. O valor de ${fmtR(P.valor)} já vem preenchido.</div>`:
+      `<div class="sub">Combine a forma de pagamento com a ${esc(L.empresa)}.</div>`}
+    </div>
+    <div class="sub" style="text-align:center">Já pagou? A ${esc(L.empresa)} confirma o recebimento e esta página é atualizada.</div>`}
+    ${hist.length?`<div class="card"><b>Últimos pagamentos confirmados</b><div class="hist">${hist.slice(0,6).map(h=>`<div><span>${fmtData(h.data)}${h.parcela?' · parcela '+h.parcela:''}</span><b>${fmtR(h.valor)}</b></div>`).join('')}</div></div>`:''}
+    ${L.ativo&&!quitado?`<a class="sec" href="enviar.html?t=${encodeURIComponent(token)}">Enviar foto do painel (KM)</a>`:''}
+    <div class="sub" style="text-align:center;font-size:12px">Giro Frota · SysHub</div>`;
+  if(P.pix&&!quitado){
+    try{const q=qrcode(0,'M');q.addData(P.pix);q.make();$('#qr').innerHTML=q.createImgTag(6,8)}catch(e){const b=$('#qr');if(b)b.hidden=true}
+    $('#copiar').onclick=async()=>{const t=$('#pix');
+      try{await navigator.clipboard.writeText(P.pix);$('#copiar').textContent='Código copiado ✓'}
+      catch(e){t.focus();t.select();try{document.execCommand('copy');$('#copiar').textContent='Código copiado ✓'}catch(_){$('#copiar').textContent='Selecione e copie o código'}}
+      setTimeout(()=>{const b=$('#copiar');if(b)b.textContent='Copiar código Pix'},3000)};
+  }
+}
+})();
+</script>
+</body>
+</html>
