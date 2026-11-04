@@ -68,6 +68,7 @@ button:disabled{opacity:.6;cursor:default}
 button:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn.primary,button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn.wa{background:var(--ok);color:#fff;border-color:var(--ok)}
+.btn.pixbtn{background:#0E8C7F;border-color:#0E8C7F;color:#fff}
 button.danger{color:var(--bad);border-color:var(--bad)}
 button.danger.armed{background:var(--bad);color:#fff}
 button.link{border:0;background:none;color:var(--accent);padding:6px 0;font-weight:600}
@@ -323,7 +324,7 @@ function pushCard(){
 
 function openTenant(eid,nome){
   stop(tenantSubs);
-  S.eid=eid;S.eNome=nome;S.veiculos=[];S.clientes=[];S.ready={veiculos:false,clientes:false};
+  S.eid=eid;S.eNome=nome;S.veiculos=[];S.clientes=[];S.ready={veiculos:false,clientes:false};S.pix=null;
   if(S.tab==='locadoras'&&eid!==S.user.uid)S.tab='avisos';
   shell(true);
   $('#empresaNome').textContent=nome;
@@ -342,6 +343,7 @@ function openTenant(eid,nome){
       if(!snap.metadata.fromCache){syncLinks();processarEnvios()}
     },e=>{clearTimeout(timer);const b=$('#banner');b.hidden=false;b.textContent=e&&e.code==='permission-denied'?'Sem permissão para ver estes dados.':'Não foi possível carregar os dados. Feche e abra o app de novo.'}));
   });
+  tenantSubs.push(fs.doc(`empresas/${eid}/config/pix`).onSnapshot(d=>{if(S.eid!==eid)return;S.pix=d.exists&&d.data().chave?d.data():null;render()},()=>{}));
   S.novos=[];
   tenantSubs.push(fs.collection(`empresas/${eid}/envios`).where('novo','==',true).onSnapshot(snap=>{
     if(S.eid!==eid)return;S.novos=snap.docs;processarEnvios();
@@ -464,13 +466,37 @@ function cobr(c){
 }
 function veic(id){return S.veiculos.find(v=>v.id===id)}
 function waNum(t){const tel=String(t||'').replace(/\D/g,'');return tel.length<=11?'55'+tel:tel}
+/* ---------- Pix copia e cola (BR Code estático, padrão Banco Central) ---------- */
+const PIX_TIPOS={cpf:'CPF',cnpj:'CNPJ',celular:'Celular',email:'E-mail',aleatoria:'Chave aleatória'};
+function semAcento(s,max){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9 .\-]/g,'').replace(/\s+/g,' ').trim().slice(0,max)}
+function tlv(id,v){return id+String(v.length).padStart(2,'0')+v}
+function crc16(s){let c=0xFFFF;for(let i=0;i<s.length;i++){c^=s.charCodeAt(i)<<8;for(let k=0;k<8;k++)c=c&0x8000?((c<<1)^0x1021)&0xFFFF:(c<<1)&0xFFFF}return c.toString(16).toUpperCase().padStart(4,'0')}
+/* Confere e padroniza a chave; devolve {chave} ou {erro} */
+function normalizaChave(tipo,v){
+  v=String(v||'').trim();const dig=v.replace(/\D/g,'');
+  if(tipo==='cpf'){if(dig.length!==11||!cpfOk(dig))return{erro:'CPF inválido. Confira os 11 números.'};return{chave:dig}}
+  if(tipo==='cnpj'){if(dig.length!==14||!cnpjOk(dig))return{erro:'CNPJ inválido. Confira os 14 números.'};return{chave:dig}}
+  if(tipo==='celular'){const n=dig.startsWith('55')&&dig.length>11?dig.slice(2):dig;if(n.length!==11)return{erro:'Celular inválido. Use DDD + número, ex.: (92) 99999-0000.'};return{chave:'+55'+n}}
+  if(tipo==='email'){const e=v.toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)||e.length>77)return{erro:'E-mail inválido.'};return{chave:e}}
+  const a=v.toLowerCase();if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(a))return{erro:'Chave aleatória inválida. Ela tem 36 caracteres, com hífens.'};return{chave:a};
+}
+function cpfOk(c){if(/^(\d)\1+$/.test(c))return false;const d=k=>{let s=0;for(let i=0;i<k;i++)s+=+c[i]*(k+1-i);const r=s*10%11%10;return r===+c[k]};return d(9)&&d(10)}
+function cnpjOk(c){if(/^(\d)\1+$/.test(c))return false;const d=k=>{const w=k===12?[5,4,3,2,9,8,7,6,5,4,3,2]:[6,5,4,3,2,9,8,7,6,5,4,3,2];let s=0;for(let i=0;i<k;i++)s+=+c[i]*w[i];const r=s%11;return (r<2?0:11-r)===+c[k]};return d(12)&&d(13)}
+function pixCodigo(pix,valor,txid){
+  const p=tlv('00','01')+tlv('26',tlv('00','br.gov.bcb.pix')+tlv('01',pix.chave))+tlv('52','0000')+tlv('53','986')
+    +(valor>0?tlv('54',(Math.round(valor*100)/100).toFixed(2)):'')+tlv('58','BR')+tlv('59',semAcento(pix.nome,25)||'RECEBEDOR')+tlv('60',semAcento(pix.cidade,15)||'BRASIL')
+    +tlv('62',tlv('05',String(txid||'***').replace(/[^A-Za-z0-9]/g,'').slice(0,25)||'***'))+'6304';
+  return p+crc16(p);
+}
+function pixCliente(c){return S.pix&&Number(c.valor)>0?pixCodigo(S.pix,Number(c.valor),'GIRO'+String(c.id).slice(0,12)):null}
+function waPix(c){return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(pixCliente(c))}
 function waLink(c){
   const v=veic(c.veiculoId), cb=cobr(c);
   const nome=String(c.nome).split(' ')[0], loc=v?' do '+v.modelo+' ('+v.placa+')':'';
   const msg=cb.dias<0
     ?`Olá, ${nome}! Aqui é da ${S.eNome}. O pagamento da locação${loc}, no valor de ${fmtR(c.valor)}, venceu em ${fmtDate(c.proximoVencimento)} e ainda está em aberto (${-cb.dias} ${-cb.dias===1?'dia':'dias'} de atraso). Pode verificar, por favor? Qualquer dúvida estou à disposição.`
     :`Olá, ${nome}! Aqui é da ${S.eNome}. Passando para lembrar do pagamento da locação${loc}, no valor de ${fmtR(c.valor)}, ${cb.dias===0?'que vence hoje':'que vence em '+fmtDate(c.proximoVencimento)}. Qualquer dúvida estou à disposição.`;
-  return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(msg);
+  return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(msg+(pixCliente(c)?'\n\nVou te mandar o *Pix copia e cola* na próxima mensagem. É só copiar e colar no app do seu banco.':''));
 }
 
 /* ---------- Telas ---------- */
@@ -497,11 +523,12 @@ function cCard(c,compact){
     <div class="row"><div style="min-width:0"><div class="title">${esc(c.nome)}</div><div class="sub">${v?esc(v.modelo)+' · '+esc(v.placa):'Sem veículo'} · ${FREQ[c.frequencia]||''} ${fmtR(c.valor)}</div></div><span class="pill ${cb.st}">${esc(cb.txt)}</span></div>
     <div class="actions">
       ${c.telefone?`<a class="btn wa" href="${waLink(c)}" target="_blank" rel="noopener" data-wa="cob" data-id="${c.id}">${c.ultimaCobranca===todayStr()?'Cobrar de novo':'Cobrar no WhatsApp'}</a>`:''}
+      ${c.telefone&&pixCliente(c)?`<a class="btn pixbtn" href="${waPix(c)}" target="_blank" rel="noopener" data-wa="pix" data-id="${c.id}">Enviar Pix</a>`:''}
       <button type="button" data-act="pago" data-id="${c.id}">Recebi</button>
       ${compact?'':`<button type="button" data-act="editC" data-id="${c.id}">Editar</button>`}
       ${!compact&&c.token&&c.telefone&&veic(c.veiculoId)?`<a class="btn" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto do KM</a>`:''}
     </div>
-    ${c.ultimaCobranca===todayStr()?'<div class="sub">✓ Cobrança enviada hoje</div>':''}
+    ${c.ultimaCobranca===todayStr()||c.ultimoPix===todayStr()?`<div class="sub">${c.ultimaCobranca===todayStr()?'✓ Cobrança enviada hoje':''}${c.ultimaCobranca===todayStr()&&c.ultimoPix===todayStr()?' · ':''}${c.ultimoPix===todayStr()?'✓ Pix enviado hoje':''}</div>`:''}
     ${!compact&&veic(c.veiculoId)?(()=>{const p=kmPend(c);return `<div class="sub">${c.oleoPorConta==='cliente'?'Troca de óleo por conta do cliente · ':''}Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
@@ -586,6 +613,7 @@ function render(){
       <div class="list">${ctrLista.map(ctrCard).join('')}</div>`:''}
       ${vazio?'<div class="note">Comece cadastrando seus veículos na aba <b>Veículos</b> e depois os clientes que estão com eles na aba <b>Clientes</b>. Os avisos aparecem aqui.</div>':''}
       <h2>Cobranças <span class="count">${cobAlert.length}</span></h2>
+      ${cobAlert.length&&!S.pix&&S.eid===S.user.uid?'<div class="push" style="margin:0 0 10px"><span><b>Envie o Pix junto com a cobrança</b>Cadastre sua chave e o app gera o Pix copia e cola com o valor certo.</span><button type="button" class="primary" data-act="pixcfg">Cadastrar Pix</button></div>':''}
       <div class="list">${cobAlert.length?cobAlert.map(c=>cCard(c,true)).join(''):'<div class="empty">Nenhuma cobrança vencendo nos próximos 3 dias.</div>'}</div>
       <h2>Foto do KM <span class="count">${kmLista.length}</span></h2>
       ${kmAtras?`<div class="sub" style="margin:-4px 0 8px;color:var(--bad)">${kmAtras} ${kmAtras===1?'cliente não enviou a foto':'clientes não enviaram a foto'} depois do pedido</div>`:''}
@@ -834,17 +862,47 @@ async function resetLocadora(l){
 }
 
 /* ---------- Conta ---------- */
+function pixForm(){
+  const p=S.pix||{tipo:'cpf',nome:S.eNome,cidade:''};
+  openSheet(`<h3>Chave Pix para cobranças</h3><p class="sub" style="margin-top:-6px">O Giro Frota gera o Pix copia e cola com o valor de cada cobrança, para você mandar ao cliente pelo WhatsApp.</p>
+  <form id="f"><div class="grid">
+    <label class="full">Tipo de chave<select id="fp-tipo" name="tipo">${Object.entries(PIX_TIPOS).map(([k,n])=>`<option value="${k}" ${p.tipo===k?'selected':''}>${n}</option>`).join('')}</select></label>
+    <label class="full">Chave Pix<input id="fp-chave" name="chave" required value="${esc(p.chaveDigitada||p.chave||'')}" autocomplete="off"></label>
+    <label class="full">Nome de quem recebe<input id="fp-nome" name="nome" required maxlength="25" value="${esc(p.nome||'')}" placeholder="Como aparece no banco"></label>
+    <label class="full">Cidade<input id="fp-cid" name="cidade" required maxlength="15" value="${esc(p.cidade||'')}" placeholder="Ex.: Manaus"></label>
+  </div>
+  <div class="sub" style="margin-top:8px">Use a mesma chave cadastrada no seu banco. O nome e a cidade aparecem para o cliente na hora de pagar.</div>
+  <div class="err" id="ferr" role="alert" style="margin-top:10px"></div>
+  <div class="form-actions">${S.pix?'<button type="button" class="danger" id="fpdel">Remover chave</button>':'<span></span>'}<div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Salvar</button></div></div></form>
+  ${S.pix?`<div class="note" style="margin-top:14px">Para testar, copie um Pix de <b>R$ 1,00</b> e cole no app do seu banco: <button type="button" id="fpteste" style="margin-top:8px;width:100%">Copiar Pix de teste</button><div id="fptxt" class="nums" style="word-break:break-all;margin-top:8px;font-size:12px"></div></div>`:''}`,root=>{
+    const ph={cpf:'000.000.000-00',cnpj:'00.000.000/0000-00',celular:'(92) 99999-0000',email:'voce@email.com',aleatoria:'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'};
+    const tp=root.querySelector('#fp-tipo'),ch=root.querySelector('#fp-chave');
+    const upd=()=>{ch.placeholder=ph[tp.value];ch.inputMode=tp.value==='email'||tp.value==='aleatoria'?'email':'numeric'};tp.addEventListener('change',upd);upd();
+    const te=root.querySelector('#fpteste');if(te){const cod=pixCodigo(S.pix,1,'TESTEGIROFROTA');root.querySelector('#fptxt').textContent=cod;te.onclick=()=>copiar(cod,root.querySelector('#fptxt'))}
+    const del=root.querySelector('#fpdel');if(del)del.onclick=()=>{fs.doc(`empresas/${S.eid}/config/pix`).delete().then(()=>toast('Chave Pix removida'),()=>toast('Não foi possível remover.'));closeSheet()};
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);const err=root.querySelector('#ferr');
+      const r=normalizaChave(fd.get('tipo'),fd.get('chave'));if(r.erro){err.textContent=r.erro;return}
+      const nome=semAcento(fd.get('nome'),25),cidade=semAcento(fd.get('cidade'),15);
+      if(!nome||!cidade){err.textContent='Preencha o nome e a cidade.';return}
+      fs.doc(`empresas/${S.eid}/config/pix`).set({tipo:fd.get('tipo'),chave:r.chave,chaveDigitada:fd.get('chave').trim(),nome,cidade,atualizadoEm:todayStr()})
+        .then(()=>toast('Chave Pix salva'),()=>toast('Não foi possível salvar.'));
+      closeSheet();});
+  });
+}
+
 function contaSheet(){
   openSheet(`<h3>Minha conta</h3><p class="sub" style="margin-top:-6px">${esc(S.user.email)}${S.isAdmin?' · administrador':''}</p>
   <div class="list">
     ${S.isAdmin?'':`<button type="button" id="cpLink">Copiar link do app</button>`}
     ${pushEstado()==='granted'?'<div class="sub" style="text-align:center">✓ Notificações ativas neste aparelho (avisos às 7h)</div>':'<button type="button" id="pushBtn">Ativar notificações</button>'}
+    <button type="button" id="pixBtn">${S.pix&&S.eid===S.user.uid?'Chave Pix: '+esc(PIX_TIPOS[S.pix.tipo]||'')+' ✓':'Cadastrar chave Pix'}</button>
     <button type="button" id="trocar">Trocar minha senha</button>
     <button type="button" id="sair" class="danger">Sair</button>
     <button type="button" data-close>Fechar</button>
   </div>
   <div class="credito">Giro Frota · desenvolvido por <b>SysHub</b></div>`,root=>{
     const pb=root.querySelector('#pushBtn');if(pb)pb.onclick=()=>{closeSheet();ativarPush(false)};
+    root.querySelector('#pixBtn').onclick=()=>{if(S.eid!==S.user.uid)openTenant(S.user.uid,S.meuNome);closeSheet();setTimeout(pixForm,350)};
     root.querySelector('#trocar').onclick=async()=>{try{await auth.sendPasswordResetEmail(S.user.email);toast('Enviamos um link para criar nova senha no seu e-mail.')}catch(x){toast(authMsg(x))}};
     root.querySelector('#sair').onclick=()=>auth.signOut();
     const c=root.querySelector('#cpLink');if(c)c.onclick=()=>copiar(appUrl,c);
@@ -859,6 +917,7 @@ document.addEventListener('click',e=>{
   const ctr=e.target.closest('[data-ctr]');
   if(ctr){fs.collection('usuarios').doc(ctr.dataset.ctr).update({contatoRenovacao:todayStr()}).catch(()=>{});return}
   const wa=e.target.closest('[data-wa]');
+  if(wa&&wa.dataset.wa==='pix'){col('clientes').doc(wa.dataset.id).update({ultimoPix:todayStr()}).catch(()=>{});return}
   if(wa){const f=wa.dataset.wa==='km'?{ultimoPedidoKm:todayStr()}:{ultimaCobranca:todayStr()};col('clientes').doc(wa.dataset.id).update(f).catch(()=>{});return}
   const b=e.target.closest('[data-act]');if(!b)return;
   const id=b.dataset.id,act=b.dataset.act;
@@ -874,6 +933,7 @@ document.addEventListener('click',e=>{
   else if(act==='renovarL')renovarForm(loc());
   else if(act==='foto')verFoto(veic(id));
   else if(act==='push')ativarPush(false);
+  else if(act==='pixcfg')pixForm();
 });
 async function verFoto(v){
   openSheet(`<h3>Foto do painel</h3><p class="sub" style="margin-top:-6px">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km</p>
