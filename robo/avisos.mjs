@@ -34,12 +34,17 @@ function oleoAviso(v) {
 }
 const cobAtrasada = c => c.proximoVencimento && dias(hoje, c.proximoVencimento) < 0;
 const cobHoje = c => c.proximoVencimento && dias(hoje, c.proximoVencimento) >= 0 && dias(hoje, c.proximoVencimento) <= 1;
-function kmPendente(c, veiculos) {
-  if (!c.veiculoId || !veiculos.some(v => v.id === c.veiculoId) || !c.telefone) return false;
+const PRAZO_FOTO = 2; // dias para responder ao pedido antes de virar "atrasada"
+// null (em dia ou aguardando), 'pedir' ou 'atrasada'
+function kmSituacao(c, veiculos) {
+  if (!c.veiculoId || !veiculos.some(v => v.id === c.veiculoId) || !c.telefone) return null;
   const base = c.ultimoKmRecebido || c.kmDesde;
   const desdeRec = base ? dias(base, hoje) : 999;
-  const desdePed = c.ultimoPedidoKm ? dias(c.ultimoPedidoKm, hoje) : 999;
-  return desdeRec >= 15 && desdePed >= 3;
+  const intervalo = Number(c.diasFoto) >= 1 ? Number(c.diasFoto) : 15;
+  if (desdeRec < intervalo) return null;
+  const pedido = c.ultimoPedidoKm && (!base || c.ultimoPedidoKm >= base) ? c.ultimoPedidoKm : null;
+  if (!pedido) return 'pedir';
+  return dias(pedido, hoje) >= PRAZO_FOTO ? 'atrasada' : null;
 }
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
@@ -52,12 +57,14 @@ async function processar(uid, nome) {
   const oleo = veiculos.filter(oleoAviso).length;
   const atras = clientes.filter(cobAtrasada).length;
   const vence = clientes.filter(cobHoje).length;
-  const km = clientes.filter(c => kmPendente(c, veiculos)).length;
+  const km = clientes.filter(c => kmSituacao(c, veiculos) === 'pedir').length;
+  const kmAtras = clientes.filter(c => kmSituacao(c, veiculos) === 'atrasada').length;
 
   const partes = [];
   if (atras) partes.push(plural(atras, 'pagamento atrasado', 'pagamentos atrasados'));
   if (vence) partes.push(plural(vence, 'pagamento vencendo', 'pagamentos vencendo'));
   if (oleo) partes.push(plural(oleo, 'troca de óleo', 'trocas de óleo'));
+  if (kmAtras) partes.push(plural(kmAtras, 'foto do KM atrasada', 'fotos do KM atrasadas'));
   if (km) partes.push(plural(km, 'pedido de foto do KM', 'pedidos de foto do KM'));
   if (!partes.length && !TESTE) return { nome, enviado: 0, motivo: 'sem avisos' };
 
