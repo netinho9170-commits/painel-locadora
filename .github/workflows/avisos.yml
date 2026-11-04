@@ -32,3 +32,6 @@ jobs:
         env:
           GCLOUD_PROJECT: painel-locadora
           TESTE: ${{ github.event.inputs.teste }}
+          # WhatsApp oficial (Meta). Sem estes segredos o robô roda em modo simulação.
+          WA_TOKEN: ${{ secrets.WA_TOKEN }}
+          WA_PHONE_ID: ${{ secrets.WA_PHONE_ID }}
