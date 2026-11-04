@@ -33,8 +33,10 @@ function oleoAviso(v) {
   const margem = v.tipo === 'moto' ? 200 : 500;
   return kmRest <= margem || (diasRest !== null && diasRest <= 15);
 }
-const cobAtrasada = c => c.proximoVencimento && dias(hoje, c.proximoVencimento) < 0;
-const cobHoje = c => c.proximoVencimento && dias(hoje, c.proximoVencimento) >= 0 && dias(hoje, c.proximoVencimento) <= 1;
+// Venda parcelada já quitada não gera mais cobrança
+const quitado = c => c.modalidade === 'compra' && Number(c.totalParcelas) > 0 && Number(c.parcelasPagas) >= Number(c.totalParcelas);
+const cobAtrasada = c => !quitado(c) && c.proximoVencimento && dias(hoje, c.proximoVencimento) < 0;
+const cobHoje = c => !quitado(c) && c.proximoVencimento && dias(hoje, c.proximoVencimento) >= 0 && dias(hoje, c.proximoVencimento) <= 1;
 const PRAZO_FOTO = 2; // dias para responder ao pedido antes de virar "atrasada"
 // null (em dia ou aguardando), 'pedir' ou 'atrasada'
 function kmSituacao(c, veiculos) {
