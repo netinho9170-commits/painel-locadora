@@ -48,7 +48,7 @@ function kmSituacao(c, veiculos) {
 }
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
-async function processar(uid, nome) {
+async function processar(uid, nome, extras = []) {
   const tokens = (await db.collection(`empresas/${uid}/push`).get()).docs.map(d => d.id);
   if (!tokens.length) return { nome, enviado: 0, motivo: 'sem aparelho' };
   const veiculos = (await db.collection(`empresas/${uid}/veiculos`).get()).docs.map(d => ({ id: d.id, ...d.data() }));
@@ -60,7 +60,7 @@ async function processar(uid, nome) {
   const km = clientes.filter(c => kmSituacao(c, veiculos) === 'pedir').length;
   const kmAtras = clientes.filter(c => kmSituacao(c, veiculos) === 'atrasada').length;
 
-  const partes = [];
+  const partes = [...extras];
   if (atras) partes.push(plural(atras, 'pagamento atrasado', 'pagamentos atrasados'));
   if (vence) partes.push(plural(vence, 'pagamento vencendo', 'pagamentos vencendo'));
   if (oleo) partes.push(plural(oleo, 'troca de óleo', 'trocas de óleo'));
@@ -90,11 +90,28 @@ async function processar(uid, nome) {
 }
 
 const usuarios = (await db.collection('usuarios').get()).docs;
+
+// Contratos das locadoras que vencem em até 7 dias ou já venceram (aviso só para o administrador)
+const AVISO_CONTRATO = 7;
+const contratos = [];
+for (const u of usuarios) {
+  const p = u.data();
+  if (p.role !== 'locadora' || p.ativo === false || !p.venceContrato) continue;
+  const d = dias(hoje, p.venceContrato);
+  if (d > AVISO_CONTRATO) continue;
+  const nome = p.empresa || 'Locadora';
+  contratos.push({ d, txt: d < 0 ? `contrato da ${nome} venceu` : d === 0 ? `contrato da ${nome} vence hoje` : `contrato da ${nome} vence em ${d} dia${d === 1 ? '' : 's'}` });
+}
+contratos.sort((a, b) => a.d - b.d);
+const avisoContratos = contratos.length > 2
+  ? [`${contratos.length} contratos de locadoras para renovar`]
+  : contratos.map(c => c.txt.charAt(0).toUpperCase() + c.txt.slice(1));
+
 let total = 0;
 for (const u of usuarios) {
   const p = u.data();
   if (p.ativo === false) continue; // locadora suspensa
-  const r = await processar(u.id, p.empresa || 'Minha locadora');
+  const r = await processar(u.id, p.empresa || 'Minha locadora', p.role === 'admin' ? avisoContratos : []);
   total += r.enviado;
   console.log(`${r.nome}: ${r.enviado} notificação(ões) — ${r.motivo}`);
 }
