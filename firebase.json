@@ -1,7 +1,7 @@
 {
   "hosting": {
     "public": ".",
-    "ignore": ["firebase.json", "firestore.rules", "LEIA-ME.txt", "**/.*"],
+    "ignore": ["firebase.json", "firestore.rules", "LEIA-ME.txt", "robo/**", "**/.*"],
     "headers": [
       {
         "source": "**/*.@(html|js|json)",

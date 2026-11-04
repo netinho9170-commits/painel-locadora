@@ -99,6 +99,8 @@ input,select{font:inherit;font-size:16px;color:var(--fg);background:var(--surfac
 .login .brand img{width:52px;height:52px;border-radius:12px}
 .login form{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
 .err{color:var(--bad);font-size:14px;min-height:0}
+.push{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--accent-soft);border-radius:12px;padding:12px;margin-top:10px;font-size:14px}
+.push b{display:block}
 .credito{text-align:center;font-size:12px;color:var(--muted);letter-spacing:.02em;margin-top:8px}
 .cred{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--f-mono);font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media (max-width:380px){.sum b{font-size:24px}form .grid{grid-template-columns:1fr}}
@@ -131,6 +133,7 @@ input,select{font:inherit;font-size:16px;color:var(--fg);background:var(--surfac
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script>
 (function(){
 const $=s=>document.querySelector(s);
@@ -289,6 +292,35 @@ function showTrocarSenha(u){
   });
 }
 
+/* ---------- Notificações no celular ---------- */
+const ehIphone=/iPhone|iPad|iPod/.test(navigator.userAgent);
+const instalado=window.matchMedia&&matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+function pushSuportado(){try{return 'Notification' in window&&'serviceWorker' in navigator&&'PushManager' in window&&!!firebase.messaging&&firebase.messaging.isSupported()}catch(e){return false}}
+function pushEstado(){if(!pushSuportado())return 'nao';return Notification.permission}
+let pushOk=false;
+async function ativarPush(silencioso){
+  try{
+    if(!pushSuportado()){if(!silencioso)toast(ehIphone&&!instalado?'No iPhone, adicione o Giro Frota à tela inicial e abra por lá para ativar as notificações.':'Este navegador não recebe notificações. Use o Chrome no Android ou o app na tela inicial do iPhone.');return false}
+    const perm=silencioso?Notification.permission:await Notification.requestPermission();
+    if(perm!=='granted'){if(!silencioso){toast('As notificações foram bloqueadas. Libere nas configurações do navegador.');render()}return false}
+    const reg=await navigator.serviceWorker.register('firebase-messaging-sw.js');
+    const token=await firebase.messaging().getToken({vapidKey:CFG.vapidKey,serviceWorkerRegistration:reg});
+    if(!token)return false;
+    await fs.doc(`empresas/${S.user.uid}/push/${token}`).set({criadoEm:todayStr(),aparelho:navigator.userAgent.slice(0,150)});
+    pushOk=true;
+    if(!silencioso)toast('Notificações ativadas. Os avisos chegam todo dia às 7h.');
+    render();return true;
+  }catch(e){console.warn('push',e);if(!silencioso)toast('Não foi possível ativar as notificações neste aparelho.');return false}
+}
+function pushCard(){
+  if(S.eid!==S.user.uid)return '';
+  const st=pushEstado();
+  if(st==='granted')return '';
+  if(st==='denied')return '<div class="push"><span><b>Notificações bloqueadas</b>Libere as notificações do Giro Frota nas configurações do navegador para receber os avisos às 7h.</span></div>';
+  if(st==='nao')return ehIphone&&!instalado?'<div class="push"><span><b>Receba os avisos no iPhone</b>Toque em Compartilhar → "Adicionar à Tela de Início" e abra o Giro Frota pelo ícone para ativar as notificações.</span></div>':'';
+  return '<div class="push"><span><b>Receba os avisos no celular</b>Todo dia às 7h, mesmo com o app fechado.</span><button type="button" class="primary" data-act="push">Ativar notificações</button></div>';
+}
+
 function openTenant(eid,nome){
   stop(tenantSubs);
   S.eid=eid;S.eNome=nome;S.veiculos=[];S.clientes=[];S.ready={veiculos:false,clientes:false};
@@ -299,6 +331,7 @@ function openTenant(eid,nome){
   const t=$('#tenant');t.hidden=!outro;
   if(outro){t.innerHTML=`<span>Você está vendo o painel de <b>${esc(nome)}</b></span><button type="button" id="voltar">Voltar ao meu painel</button>`;$('#voltar').onclick=()=>openTenant(S.user.uid,S.meuNome)}
   render();
+  if(eid===S.user.uid&&pushEstado()==='granted')ativarPush(true);
   const timer=setTimeout(()=>{if(!S.ready.veiculos||!S.ready.clientes){const b=$('#banner');b.hidden=false;b.textContent='Sem conexão com a internet. Mostrando o que já estava salvo no aparelho.'}},10000);
   ['veiculos','clientes'].forEach(coll=>{
     tenantSubs.push(fs.collection(`empresas/${eid}/${coll}`).onSnapshot({includeMetadataChanges:true},snap=>{
@@ -495,6 +528,7 @@ function render(){
         <div class="sum ${oleoAlert.length?'warn':''}"><b>${oleoAlert.length}</b><span>trocas de óleo</span></div>
         <div class="sum"><b style="font-size:20px;padding-block:4px">${fmtR(aReceber)}</b><span>a receber em 7 dias</span></div>
       </div>
+      ${pushCard()}
       ${vazio?'<div class="note">Comece cadastrando seus veículos na aba <b>Veículos</b> e depois os clientes que estão com eles na aba <b>Clientes</b>. Os avisos aparecem aqui.</div>':''}
       <h2>Cobranças <span class="count">${cobAlert.length}</span></h2>
       <div class="list">${cobAlert.length?cobAlert.map(c=>cCard(c,true)).join(''):'<div class="empty">Nenhuma cobrança vencendo nos próximos 3 dias.</div>'}</div>
@@ -712,11 +746,13 @@ function contaSheet(){
   openSheet(`<h3>Minha conta</h3><p class="sub" style="margin-top:-6px">${esc(S.user.email)}${S.isAdmin?' · administrador':''}</p>
   <div class="list">
     ${S.isAdmin?'':`<button type="button" id="cpLink">Copiar link do app</button>`}
+    ${pushEstado()==='granted'?'<div class="sub" style="text-align:center">✓ Notificações ativas neste aparelho (avisos às 7h)</div>':'<button type="button" id="pushBtn">Ativar notificações</button>'}
     <button type="button" id="trocar">Trocar minha senha</button>
     <button type="button" id="sair" class="danger">Sair</button>
     <button type="button" data-close>Fechar</button>
   </div>
   <div class="credito">Giro Frota · desenvolvido por <b>SysHub</b></div>`,root=>{
+    const pb=root.querySelector('#pushBtn');if(pb)pb.onclick=()=>{closeSheet();ativarPush(false)};
     root.querySelector('#trocar').onclick=async()=>{try{await auth.sendPasswordResetEmail(S.user.email);toast('Enviamos um link para criar nova senha no seu e-mail.')}catch(x){toast(authMsg(x))}};
     root.querySelector('#sair').onclick=()=>auth.signOut();
     const c=root.querySelector('#cpLink');if(c)c.onclick=()=>copiar(appUrl,c);
@@ -742,6 +778,7 @@ document.addEventListener('click',e=>{
   else if(act==='editL')locadoraForm(loc());
   else if(act==='resetL')resetLocadora(loc());
   else if(act==='foto')verFoto(veic(id));
+  else if(act==='push')ativarPush(false);
 });
 async function verFoto(v){
   openSheet(`<h3>Foto do painel</h3><p class="sub" style="margin-top:-6px">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km</p>

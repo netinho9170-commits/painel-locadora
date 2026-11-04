@@ -11,6 +11,9 @@ window.LOCADORA_CONFIG = {
   // 2) Nome da SUA locadora (aparece no topo quando você entra).
   nomeEmpresa: "Minha Locadora",
 
+  // Chave pública para notificações (Firebase > Cloud Messaging > Certificados push da Web)
+  vapidKey: "BDfiYOsimCbs-h06VQK4hMIfj4jro3bpdpi5WADyuWzlw-W1VGSc78iuoXEMPNeuOuPhtjQ73DDzF1Yo7atBCMc",
+
   // 3) Cole aqui o firebaseConfig do seu projeto Firebase
   //    (Configurações do projeto > Seus apps > App da Web).
   firebase: {
