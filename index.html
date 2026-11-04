@@ -367,7 +367,7 @@ function syncLinks(){
     const token=c.token||novoToken();
     const pag={valor:Number(c.valor)||0,venc:c.proximoVencimento||'',freq:c.frequencia||'',pagas:pp?pp.pagas:0,total:pp?pp.total:0,pix:pixCliente(c)||'',
       hist:(Array.isArray(c.historico)?c.historico:[]).slice(0,6).map(h=>({data:h.data||'',valor:Number(h.valor)||0,...(h.parcela?{parcela:h.parcela}:{})}))};
-    const dados={eid,cid:c.id,vid:c.veiculoId||'',nome:String(c.nome||'').split(' ')[0],empresa:S.eNome,modelo:v?v.modelo:'',placa:v?v.placa:'',kmAtual:v?Number(v.kmAtual)||0:0,ativo:!!v,pag};
+    const dados={eid,cid:c.id,vid:c.veiculoId||'',nome:String(c.nome||'').split(' ')[0],empresa:S.eNome,modelo:v?v.modelo:'',placa:v?v.placa:'',kmAtual:v?Number(v.kmAtual)||0:0,ativo:!!v&&!pp,pag};
     const chave=JSON.stringify(dados);
     if(c.token&&c.linkKey===chave)return;
     if(linkSyncing.has(c.id))return;linkSyncing.add(c.id);
@@ -400,6 +400,7 @@ const PRAZO_FOTO=2; // dias para o cliente responder ao pedido antes de virar "a
 function diasFoto(c){const n=Number(c.diasFoto);return n>=1?n:15}
 /* Situação da foto do KM: null (em dia ou aguardando resposta), 'pedir' ou 'atrasada' */
 function kmPend(c){
+  if(parc(c))return null; // venda parcelada: sem foto do KM
   if(!c.veiculoId||!veic(c.veiculoId)||!c.telefone)return null;
   const base=c.ultimoKmRecebido||c.kmDesde;
   const desdeRec=base?daysBetween(base,todayStr()):999;
@@ -438,7 +439,7 @@ function clean(d){const o={...d};delete o.id;return o}
 
 /* ---------- Regras de óleo e cobrança ---------- */
 /* Cliente que cuida da troca de óleo do veículo (sem avisos para a locadora) */
-function oleoCliente(v){return S.clientes.find(c=>c.veiculoId===v.id&&c.oleoPorConta==='cliente')}
+function oleoCliente(v){return S.clientes.find(c=>c.veiculoId===v.id&&(c.oleoPorConta==='cliente'||parc(c)))}
 function semDadosOleo(v){return v.kmUltimaTroca===undefined||v.kmUltimaTroca===null||v.kmUltimaTroca===''}
 function oleoSt(v){return oleoCliente(v)?'ok':oleo(v).st}
 function oleo(v){
@@ -517,15 +518,16 @@ function plate(p){return `<span class="plate"><i>BRASIL</i><b>${esc(p||'—')}</
 function vCard(v,compact){
   const o=oleo(v), cli=S.clientes.find(c=>c.veiculoId===v.id), oc=oleoCliente(v);
   return `<div class="card ${oc?'ok':o.st}">
-    <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}${cli&&parc(cli)?` · <b>${parc(cli).quitado?'quitado':'venda '+parc(cli).pagas+'/'+parc(cli).total}</b>`:''}</div></div></div><span class="pill ${oc?'ok':o.st}">${oc?'Óleo: cliente':esc(o.txt)}</span></div>
-    ${oc?`<div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Troca de óleo por conta de ${esc(String(oc.nome).split(' ')[0])}</span></div>`:
+    <div class="row"><div style="display:flex;gap:10px;align-items:center;min-width:0">${plate(v.placa)}<div style="min-width:0"><div class="title">${esc(v.modelo)}</div><div class="sub">${v.tipo==='moto'?'Moto':'Carro'}${cli?' · com '+esc(cli.nome):' · disponível'}${cli&&parc(cli)?` · <b>${parc(cli).quitado?'quitado':'venda '+parc(cli).pagas+'/'+parc(cli).total}</b>`:''}</div></div></div><span class="pill ${oc?'ok':o.st}">${oc?(parc(oc)?(parc(oc).quitado?'Quitado':'Venda parcelada'):'Óleo: cliente'):esc(o.txt)}</span></div>
+    ${oc&&parc(oc)?`<div class="row nums"><span>${esc(String(oc.nome).split(' ')[0])}</span><span>${parc(oc).quitado?'Todas as parcelas pagas':'Parcela '+parc(oc).atual+' de '+parc(oc).total}</span></div>`:
+    oc?`<div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Troca de óleo por conta de ${esc(String(oc.nome).split(' ')[0])}</span></div>`:
     o.semDados?`<div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Sem dados da última troca</span></div>`:
     `<div class="meter" aria-hidden="true"><span style="width:${Math.round(o.usado*100)}%"></span></div>
     <div class="row nums"><span>Atual ${fmtKm(v.kmAtual)} km</span><span>Trocar em ${fmtKm(o.kmProx)} km${o.dataProx?' ou '+fmtDate(o.dataProx):''}</span></div>`}
     ${v.ultimaFoto?`<div class="sub">Foto do painel: ${fmtDate(v.ultimaFoto.data)} · ${fmtKm(v.ultimaFoto.km)} km · ${v.ultimaFoto.auto?'lido na foto':'<b style="color:var(--warn)">digitado pelo cliente</b>'}</div>`:''}
     <div class="actions">
       ${v.ultimaFoto?`<button type="button" data-act="foto" data-id="${v.id}">Ver foto</button>`:''}
-      <button type="button" data-act="km" data-id="${v.id}">Atualizar KM</button>
+      ${oc&&parc(oc)?'':`<button type="button" data-act="km" data-id="${v.id}">Atualizar KM</button>`}
       ${oc?'':o.semDados?`<button type="button" data-act="editV" data-id="${v.id}" class="primary">Informar última troca</button>`:`<button type="button" data-act="trocou" data-id="${v.id}"${o.st==='ok'?'':' class="primary"'}>Óleo trocado</button>`}
       ${compact?'':`<button type="button" data-act="editV" data-id="${v.id}">Editar</button>`}
     </div></div>`;
@@ -539,12 +541,12 @@ function cCard(c,compact){
       ${c.telefone&&pixCliente(c)&&!(pp&&pp.quitado)?`<a class="btn pixbtn" href="${waPix(c)}" target="_blank" rel="noopener" data-wa="pix" data-id="${c.id}">Enviar Pix</a>`:''}
       ${pp&&pp.quitado?'':`<button type="button" data-act="pago" data-id="${c.id}">Recebi</button>`}
       ${compact?'':`<button type="button" data-act="editC" data-id="${c.id}">Editar</button>`}
-      ${!compact&&c.token&&c.telefone&&veic(c.veiculoId)?`<a class="btn" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto do KM</a>`:''}
+      ${!compact&&c.token&&c.telefone&&veic(c.veiculoId)&&!pp?`<a class="btn" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto do KM</a>`:''}
       ${!compact&&c.token&&c.telefone?`<a class="btn" href="${waLinkPag(c)}" target="_blank" rel="noopener" data-wa="lnk" data-id="${c.id}">Link de pagamento</a>`:''}
     </div>
     ${pp?`<div><div class="meter" aria-hidden="true" style="margin:2px 0 6px"><span style="width:${pp.pct}%;background:var(--ok)"></span></div><div class="sub">${pp.quitado?`<b style="color:var(--ok)">Quitado</b> · ${pp.total} de ${pp.total} parcelas pagas${c.quitadoEm?' em '+fmtDate(c.quitadoEm):''}`:`Venda parcelada · <b>parcela ${pp.atual} de ${pp.total}</b> · faltam ${pp.rest} (${fmtR(pp.rest*(Number(c.valor)||0))})${pp.fim?' · quitação prevista '+fmtData(pp.fim):''}`}</div></div>`:''}
     ${c.ultimaCobranca===todayStr()||c.ultimoPix===todayStr()?`<div class="sub">${c.ultimaCobranca===todayStr()?'✓ Cobrança enviada hoje':''}${c.ultimaCobranca===todayStr()&&c.ultimoPix===todayStr()?' · ':''}${c.ultimoPix===todayStr()?'✓ Pix enviado hoje':''}</div>`:''}
-    ${!compact&&veic(c.veiculoId)?(()=>{const p=kmPend(c);return `<div class="sub">${c.oleoPorConta==='cliente'?'Troca de óleo por conta do cliente · ':''}Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
+    ${!compact&&veic(c.veiculoId)&&!pp?(()=>{const p=kmPend(c);return `<div class="sub">${c.oleoPorConta==='cliente'?'Troca de óleo por conta do cliente · ':''}Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
 }
@@ -710,11 +712,12 @@ function clienteForm(c){
     <label>Valor (R$)<input id="fc-valor" name="valor" type="number" inputmode="decimal" min="0" step="0.01" required value="${esc(c.valor??'')}"></label>
     <label>Cobrança<select id="fc-freq" name="frequencia">${Object.entries(FREQ).map(([k,l])=>`<option value="${k}" ${c.frequencia===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label class="full">Próximo vencimento<input id="fc-venc" name="proximoVencimento" type="date" required value="${esc(c.proximoVencimento)}"></label>
-    <div class="full"><div class="sub" style="margin-bottom:6px">Troca de óleo</div><div class="seg"><label><input type="radio" name="oleoPorConta" value="locadora" ${c.oleoPorConta!=='cliente'?'checked':''}> Locadora faz (avisar)</label><label><input type="radio" name="oleoPorConta" value="cliente" ${c.oleoPorConta==='cliente'?'checked':''}> Cliente é responsável</label></div></div>
-    <label class="full">Foto do KM a cada (dias)<input id="fc-df" name="diasFoto" type="number" inputmode="numeric" min="1" max="90" required value="${esc(c.diasFoto??15)}"></label>
-  </div><p class="sub" style="margin:6px 0 0">Se o cliente não enviar a foto em ${PRAZO_FOTO} dias depois do pedido, aparece como <b>Foto atrasada</b> nos avisos.</p>${formBtns(isNew)}</form>`,root=>{
+    <div class="full" id="fc-oleo" ${c.modalidade==='compra'?'hidden':''}><div class="sub" style="margin-bottom:6px">Troca de óleo</div><div class="seg"><label><input type="radio" name="oleoPorConta" value="locadora" ${c.oleoPorConta!=='cliente'?'checked':''}> Locadora faz (avisar)</label><label><input type="radio" name="oleoPorConta" value="cliente" ${c.oleoPorConta==='cliente'?'checked':''}> Cliente é responsável</label></div></div>
+    <label class="full" id="fc-dfl" ${c.modalidade==='compra'?'hidden':''}>Foto do KM a cada (dias)<input id="fc-df" name="diasFoto" type="number" inputmode="numeric" min="1" max="90" required value="${esc(c.diasFoto??15)}"></label>
+  </div><p class="sub" id="fc-nota" style="margin:6px 0 0" ${c.modalidade==='compra'?'hidden':''}>Se o cliente não enviar a foto em ${PRAZO_FOTO} dias depois do pedido, aparece como <b>Foto atrasada</b> nos avisos.</p>${formBtns(isNew)}</form>`,root=>{
     root.querySelectorAll('input[name=modalidade]').forEach(r=>r.addEventListener('change',()=>{const cp=r.value==='compra'&&r.checked;root.querySelector('#fc-parc').hidden=!cp;
-      if(cp){const o=root.querySelector('input[name=oleoPorConta][value=cliente]');if(o&&isNew)o.checked=true;if(!root.querySelector('#fc-tot').value)root.querySelector('#fc-tot').value=208}}));
+      ['#fc-oleo','#fc-dfl','#fc-nota'].forEach(s=>root.querySelector(s).hidden=cp);
+      if(cp&&!root.querySelector('#fc-tot').value)root.querySelector('#fc-tot').value=208}));
     root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
       const compra=fd.get('modalidade')==='compra', tot=Math.floor(Number(fd.get('totalParcelas'))||0), pg=Math.floor(Number(fd.get('parcelasPagas'))||0);
       if(compra&&(tot<1||pg<0||pg>tot)){toast(tot<1?'Informe o total de parcelas.':'As parcelas pagas não podem passar do total.');return}
@@ -963,7 +966,7 @@ document.addEventListener('click',e=>{
   const ctr=e.target.closest('[data-ctr]');
   if(ctr){fs.collection('usuarios').doc(ctr.dataset.ctr).update({contatoRenovacao:todayStr()}).catch(()=>{});return}
   const wa=e.target.closest('[data-wa]');
-  if(wa&&wa.dataset.wa==='lnk')return;
+  if(wa&&wa.dataset.wa==='lnk'){if(!S.pix){e.preventDefault();toast('Cadastre sua chave Pix antes de enviar o link, para o cliente conseguir pagar.');pixForm()}return}
   if(wa&&wa.dataset.wa==='pix'){col('clientes').doc(wa.dataset.id).update({ultimoPix:todayStr()}).catch(()=>{});return}
   if(wa){const f=wa.dataset.wa==='km'?{ultimoPedidoKm:todayStr()}:{ultimaCobranca:todayStr()};col('clientes').doc(wa.dataset.id).update(f).catch(()=>{});return}
   const b=e.target.closest('[data-act]');if(!b)return;
