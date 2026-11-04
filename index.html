@@ -237,7 +237,7 @@ auth.onAuthStateChanged(async u=>{
     S.meuNome=CFG.nomeEmpresa||'Minha locadora';
     userSubs.push(fs.collection('usuarios').where('role','==','locadora').onSnapshot(s=>{
       S.locadoras=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.empresa).localeCompare(String(b.empresa)));
-      if(S.tab==='locadoras')render();
+      render();
     },e=>console.warn(e)));
     openTenant(u.uid,S.meuNome);
   }else{
@@ -499,11 +499,44 @@ function cCard(c,compact){
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
 }
+/* ---------- Contrato das locadoras (período de uso) ---------- */
+const AVISO_CONTRATO=7; // avisa o administrador X dias antes de vencer
+const PLANOS={'1':'1 mês','2':'2 meses','3':'3 meses','6':'6 meses','12':'12 meses',ind:'Indeterminado'};
+function fmtData(s){return s?parse(s).toLocaleDateString('pt-BR'):'—'}
+function venceEm(plano,inicio){return plano&&plano!=='ind'&&inicio?addMonths(inicio,+plano):null}
+/* null = sem prazo; senão {dias, st:'ok'|'warn'|'bad', txt} */
+function contrato(l){
+  if(!l.venceContrato)return null;
+  const dias=daysBetween(todayStr(),l.venceContrato);
+  if(dias<0)return {dias,st:'bad',txt:`Venceu há ${-dias} dia${dias===-1?'':'s'}`};
+  if(dias<=AVISO_CONTRATO)return {dias,st:'warn',txt:dias===0?'Vence hoje':`Vence em ${dias} dia${dias===1?'':'s'}`};
+  return {dias,st:'ok',txt:'Até '+fmtData(l.venceContrato)};
+}
+function contratosAviso(){return S.isAdmin?S.locadoras.filter(l=>l.ativo&&contrato(l)&&contrato(l).st!=='ok').sort((a,b)=>contrato(a).dias-contrato(b).dias):[]}
+function waRenovar(l){
+  const c=contrato(l), nome=String(l.responsavel||'').trim().split(' ')[0];
+  const quando=c&&c.dias<0?`venceu em ${fmtData(l.venceContrato)}`:`vence em ${fmtData(l.venceContrato)}`;
+  const msg=`Olá${nome?', '+nome:''}! Aqui é da SysHub. O período de uso do Giro Frota da ${l.empresa} ${quando}. Vamos renovar? Me diga por quanto tempo você quer continuar (1, 3, 6 ou 12 meses).`;
+  return 'https://wa.me/'+waNum(l.telefone)+'?text='+encodeURIComponent(msg);
+}
+function ctrCard(l){
+  const c=contrato(l);
+  return `<div class="card ${c.st}">
+    <div class="row"><div style="min-width:0"><div class="title">${esc(l.empresa)}</div><div class="sub">${PLANOS[l.plano]||''} · vencimento ${fmtData(l.venceContrato)}</div></div><span class="pill ${c.st}">${esc(c.txt)}</span></div>
+    ${l.contatoRenovacao?`<div class="sub">✓ Perguntado sobre renovação em ${fmtDate(l.contatoRenovacao)}</div>`:''}
+    <div class="actions">
+      ${l.telefone?`<a class="btn wa" href="${waRenovar(l)}" target="_blank" rel="noopener" data-ctr="${l.id}">Perguntar se vai renovar</a>`:''}
+      <button type="button" class="primary" data-act="renovarL" data-id="${l.id}">Renovar</button>
+    </div></div>`;
+}
 function lCard(l){
-  return `<div class="card ${l.ativo?'ok':'bad'}">
-    <div class="row"><div style="min-width:0"><div class="title">${esc(l.empresa)}</div><div class="sub">${esc(l.responsavel||'')}${l.responsavel?' · ':''}${esc(l.email)}</div></div><span class="pill ${l.ativo?'ok':'bad'}">${l.ativo?'Ativa':'Suspensa'}</span></div>
+  const c=contrato(l), st=!l.ativo?'bad':c?c.st:'ok';
+  return `<div class="card ${st}">
+    <div class="row"><div style="min-width:0"><div class="title">${esc(l.empresa)}</div><div class="sub">${esc(l.responsavel||'')}${l.responsavel?' · ':''}${esc(l.email)}</div></div><span class="pill ${l.ativo?(c?c.st:'ok'):'bad'}">${!l.ativo?'Suspensa':c&&c.st!=='ok'?esc(c.txt):'Ativa'}</span></div>
+    <div class="sub">Contrato: ${l.venceContrato?`${PLANOS[l.plano]||''} · de ${fmtData(l.inicioContrato)} até ${fmtData(l.venceContrato)}`:l.plano==='ind'?'indeterminado':'sem prazo definido'}</div>
     ${l.telefone?`<div class="nums">${esc(l.telefone)}${l.criadoEm?' · desde '+fmtDate(l.criadoEm):''}</div>`:''}
     <div class="actions">
+      ${l.venceContrato?`<button type="button" data-act="renovarL" data-id="${l.id}"${c&&c.st!=='ok'?' class="primary"':''}>Renovar</button>`:''}
       <button type="button" data-act="abrirL" data-id="${l.id}">Abrir painel</button>
       <button type="button" data-act="editL" data-id="${l.id}">Editar</button>
       <button type="button" data-act="resetL" data-id="${l.id}">Enviar nova senha</button>
@@ -516,15 +549,17 @@ function render(){
   const atras=S.clientes.filter(c=>cobr(c).dias<0);
   const kmLista=S.clientes.filter(c=>kmPend(c)).sort((a,b)=>((kmPend(a).st==='atrasada'?0:1)-(kmPend(b).st==='atrasada'?0:1))||(kmPend(b).desdeRec-kmPend(a).desdeRec));
   const kmAtras=kmLista.filter(c=>kmPend(c).st==='atrasada').length;
-  const n=oleoAlert.length+cobAlert.filter(c=>c.ultimaCobranca!==todayStr()).length+kmLista.length;
+  const ctrLista=S.eid===S.user.uid?contratosAviso():[];
+  const n=oleoAlert.length+cobAlert.filter(c=>c.ultimaCobranca!==todayStr()).length+kmLista.length+ctrLista.length;
   const bd=$('#badge');bd.hidden=!n;bd.textContent=n;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===S.tab)));
   $('#fab').textContent=S.tab==='clientes'?'+ Cliente':S.tab==='veiculos'?'+ Veículo':S.tab==='locadoras'?'+ Locadora':'+ Novo';
   const v=$('#view');
   if(S.tab==='locadoras'){
     const at=S.locadoras.filter(l=>l.ativo).length;
+    const venc=contratosAviso().length;
     v.innerHTML=`<h2>Locadoras <span class="count">${S.locadoras.length}</span></h2>
-      <div class="sub" style="margin:-4px 0 10px">${at} ativa${at===1?'':'s'} · ${S.locadoras.length-at} suspensa${S.locadoras.length-at===1?'':'s'}</div>
+      <div class="sub" style="margin:-4px 0 10px">${at} ativa${at===1?'':'s'} · ${S.locadoras.length-at} suspensa${S.locadoras.length-at===1?'':'s'}${venc?` · <b style="color:var(--warn)">${venc} contrato${venc===1?'':'s'} para renovar</b>`:''}</div>
       <div class="list">${S.locadoras.length?S.locadoras.map(lCard).join(''):'<div class="empty">Nenhuma locadora cadastrada. Toque em <b>+ Locadora</b> para criar o primeiro acesso.</div>'}</div>`;
     return;
   }
@@ -539,6 +574,9 @@ function render(){
         <div class="sum"><b style="font-size:20px;padding-block:4px">${fmtR(aReceber)}</b><span>a receber em 7 dias</span></div>
       </div>
       ${pushCard()}
+      ${ctrLista.length?`<h2>Contratos das locadoras <span class="count">${ctrLista.length}</span></h2>
+      <div class="sub" style="margin:-4px 0 8px">Vencem nos próximos ${AVISO_CONTRATO} dias ou já venceram. Pergunte se a locadora vai renovar.</div>
+      <div class="list">${ctrLista.map(ctrCard).join('')}</div>`:''}
       ${vazio?'<div class="note">Comece cadastrando seus veículos na aba <b>Veículos</b> e depois os clientes que estão com eles na aba <b>Clientes</b>. Os avisos aparecem aqui.</div>':''}
       <h2>Cobranças <span class="count">${cobAlert.length}</span></h2>
       <div class="list">${cobAlert.length?cobAlert.map(c=>cCard(c,true)).join(''):'<div class="empty">Nenhuma cobrança vencendo nos próximos 3 dias.</div>'}</div>
@@ -676,6 +714,9 @@ function locadoraForm(l){
     <label class="full">Responsável<input id="fl-resp" name="responsavel" value="${esc(l.responsavel)}"></label>
     <label class="full">E-mail de acesso<input id="fl-email" name="email" type="email" inputmode="email" required value="${esc(l.email)}" ${isNew?'':'readonly'}></label>
     <label class="full">WhatsApp (com DDD)<input id="fl-tel" name="telefone" type="tel" inputmode="tel" value="${esc(l.telefone)}"></label>
+    <label>Período de uso<select id="fl-plano" name="plano">${Object.entries(PLANOS).map(([k,n])=>`<option value="${k}" ${(l.plano||(isNew?'1':'ind'))===k?'selected':''}>${n}</option>`).join('')}</select></label>
+    <label>Início<input id="fl-ini" name="inicioContrato" type="date" value="${esc(l.inicioContrato||todayStr())}"></label>
+    <div class="full sub" id="fl-vence"></div>
     ${isNew?`<label class="full">Senha inicial<input id="fl-senha" name="senha" required minlength="6" value="${senhaAleatoria()}" style="font-family:var(--f-mono)"></label>`:
     `<div class="full seg"><label><input type="radio" name="ativo" value="1" ${l.ativo?'checked':''}> Ativa</label><label><input type="radio" name="ativo" value="0" ${l.ativo?'':'checked'}> Suspensa</label></div>
     <div class="full sub">Suspensa: a locadora não consegue entrar, mas os dados ficam guardados.</div>
@@ -685,6 +726,9 @@ function locadoraForm(l){
   <div class="err" id="ferr" role="alert" style="margin-top:10px"></div>
   <div class="form-actions">${isNew?'<span></span>':'<button type="button" class="danger" id="fdel">Excluir locadora</button>'}<div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit" id="fbtn">${isNew?'Criar acesso':'Salvar'}</button></div></div>
   ${isNew?'':'<div class="sub" id="fdelmsg" hidden style="margin-top:8px;color:var(--bad)">Isso apaga a locadora, os veículos e os clientes dela, e ela perde o acesso. Não dá para desfazer.</div>'}</form>`,root=>{
+    const pl=root.querySelector('#fl-plano'),ini=root.querySelector('#fl-ini'),ve=root.querySelector('#fl-vence');
+    const mostra=()=>{const v=venceEm(pl.value,ini.value);ini.required=pl.value!=='ind';ve.innerHTML=v?`Vence em <b>${fmtData(v)}</b>. Você recebe um aviso ${AVISO_CONTRATO} dias antes.`:'Sem data para vencer.'};
+    pl.addEventListener('change',mostra);ini.addEventListener('input',mostra);mostra();
     const del=root.querySelector('#fdel');
     if(del)del.addEventListener('click',async()=>{
       if(!del.classList.contains('armed')){del.classList.add('armed');del.textContent='Toque de novo para excluir tudo';root.querySelector('#fdelmsg').hidden=false;return}
@@ -694,7 +738,9 @@ function locadoraForm(l){
     });
     root.querySelector('#f').addEventListener('submit',async e=>{
       e.preventDefault();const fd=new FormData(e.target);const err=root.querySelector('#ferr'),b=root.querySelector('#fbtn');err.textContent='';
-      const d={empresa:fd.get('empresa').trim(),responsavel:fd.get('responsavel').trim(),telefone:fd.get('telefone').trim()};
+      const d={empresa:fd.get('empresa').trim(),responsavel:fd.get('responsavel').trim(),telefone:fd.get('telefone').trim(),plano:fd.get('plano'),inicioContrato:fd.get('inicioContrato')||todayStr()};
+      d.venceContrato=venceEm(d.plano,d.inicioContrato);
+      if(!isNew&&d.venceContrato!==l.venceContrato)d.contatoRenovacao=null;
       if(!isNew){
         d.ativo=fd.get('ativo')==='1';
         fs.collection('usuarios').doc(l.id).update(d).then(()=>toast(d.ativo?'Locadora salva':'Locadora suspensa'),()=>toast('Não foi possível salvar.'));
@@ -749,6 +795,26 @@ async function excluirLocadora(l){
   await fs.collection('usuarios').doc(l.id).delete();
   if(S.eid===l.id)openTenant(S.user.uid,S.meuNome);
 }
+function renovarForm(l){
+  const c=contrato(l);
+  const base=l.venceContrato&&c&&c.dias>=0?l.venceContrato:todayStr(); // renova a partir do vencimento (ou de hoje, se já venceu)
+  openSheet(`<h3>Renovar contrato</h3><p class="sub" style="margin-top:-6px">${esc(l.empresa)} · ${l.venceContrato?'vence em '+fmtData(l.venceContrato):'sem prazo'}</p>
+  <form id="f"><div class="grid">
+    <label>Renovar por<select id="fr-plano" name="plano">${Object.entries(PLANOS).map(([k,n])=>`<option value="${k}" ${(l.plano&&l.plano!=='ind'?l.plano:'1')===k?'selected':''}>${n}</option>`).join('')}</select></label>
+    <label>A partir de<input id="fr-ini" name="ini" type="date" required value="${base}"></label>
+    <div class="full sub" id="fr-vence"></div>
+  </div>
+  <div class="form-actions"><span></span><div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Renovar</button></div></div></form>`,root=>{
+    const pl=root.querySelector('#fr-plano'),ini=root.querySelector('#fr-ini'),ve=root.querySelector('#fr-vence');
+    const mostra=()=>{const v=venceEm(pl.value,ini.value);ve.innerHTML=v?`Novo vencimento: <b>${fmtData(v)}</b>`:'Fica sem data para vencer.'};
+    pl.addEventListener('change',mostra);ini.addEventListener('input',mostra);mostra();
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();
+      const d={plano:pl.value,inicioContrato:ini.value||todayStr(),contatoRenovacao:null};d.venceContrato=venceEm(d.plano,d.inicioContrato);
+      if(!l.ativo)d.ativo=true;
+      fs.collection('usuarios').doc(l.id).update(d).then(()=>toast(d.venceContrato?'Renovado até '+fmtData(d.venceContrato):'Contrato sem prazo'),()=>toast('Não foi possível salvar.'));
+      closeSheet();});
+  });
+}
 async function resetLocadora(l){
   try{await auth.sendPasswordResetEmail(l.email);toast('Link para nova senha enviado para '+l.email)}catch(x){toast(authMsg(x))}
 }
@@ -776,6 +842,8 @@ let tt;function toast(m){clearTimeout(tt);let t=$('.toast');if(!t){t=document.cr
 document.addEventListener('click',e=>{
   const tab=e.target.closest('nav.tabs button');
   if(tab){S.tab=tab.dataset.tab;if(S.tab==='locadoras'&&S.eid!==S.user.uid)openTenant(S.user.uid,S.meuNome);render();window.scrollTo(0,0);return}
+  const ctr=e.target.closest('[data-ctr]');
+  if(ctr){fs.collection('usuarios').doc(ctr.dataset.ctr).update({contatoRenovacao:todayStr()}).catch(()=>{});return}
   const wa=e.target.closest('[data-wa]');
   if(wa){const f=wa.dataset.wa==='km'?{ultimoPedidoKm:todayStr()}:{ultimaCobranca:todayStr()};col('clientes').doc(wa.dataset.id).update(f).catch(()=>{});return}
   const b=e.target.closest('[data-act]');if(!b)return;
@@ -789,6 +857,7 @@ document.addEventListener('click',e=>{
   else if(act==='abrirL'){const l=loc();S.tab='avisos';openTenant(l.id,l.empresa);window.scrollTo(0,0)}
   else if(act==='editL')locadoraForm(loc());
   else if(act==='resetL')resetLocadora(loc());
+  else if(act==='renovarL')renovarForm(loc());
   else if(act==='foto')verFoto(veic(id));
   else if(act==='push')ativarPush(false);
 });
