@@ -52,11 +52,52 @@ function kmSituacao(c, veiculos) {
 }
 const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 
-async function processar(uid, nome, extras = []) {
-  const tokens = (await db.collection(`empresas/${uid}/push`).get()).docs.map(d => d.id);
-  if (!tokens.length) return { nome, enviado: 0, motivo: 'sem aparelho' };
+/* ---------- WhatsApp oficial (API da Meta) ----------
+   Sem WA_TOKEN/WA_PHONE_ID o robô roda em SIMULAÇÃO: só mostra no registro o que enviaria. */
+const WA_TOKEN = process.env.WA_TOKEN || '';
+const WA_PHONE_ID = process.env.WA_PHONE_ID || '';
+const WA_LANG = process.env.WA_LANG || 'pt_BR';
+const SIMULACAO = !(WA_TOKEN && WA_PHONE_ID);
+const BASE = LINK.replace(/[^/]*$/, '');
+const fmtR = n => 'R$ ' + (Number(n) || 0).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const fmtD = s => { const [y, m, d] = String(s).split('-'); return `${d}/${m}/${y}`; };
+const waNum = t => { const n = String(t || '').replace(/\D/g, ''); return n.length <= 11 ? '55' + n : n; };
+const limpa = s => String(s ?? '').replace(/[\n\t]+/g, ' ').replace(/ {4,}/g, '   ').trim() || '-';
+let waEnviadas = 0, waSimuladas = 0, waFalhas = 0;
+async function enviarWhats(telefone, modelo, params, rotulo) {
+  const para = waNum(telefone);
+  if (para.length < 12) { console.log(`  [WhatsApp] ${rotulo}: telefone inválido (${telefone})`); return false; }
+  if (SIMULACAO) { waSimuladas++; console.log(`  [WhatsApp SIMULAÇÃO] ${rotulo} → ${para} · modelo "${modelo}" · ${params.map(limpa).join(' | ')}`); return true; }
+  const r = await fetch(`https://graph.facebook.com/v21.0/${WA_PHONE_ID}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${WA_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: para, type: 'template',
+      template: { name: modelo, language: { code: WA_LANG }, components: [{ type: 'body', parameters: params.map(x => ({ type: 'text', text: limpa(x) })) }] } })
+  }).catch(e => ({ ok: false, status: 0, text: async () => e.message }));
+  if (r.ok) { waEnviadas++; console.log(`  [WhatsApp] ${rotulo} → ${para} · enviado`); return true; }
+  waFalhas++; console.error(`  [WhatsApp] ${rotulo} → ${para} · FALHOU (${r.status}) ${(await r.text()).slice(0, 300)}`); return false;
+}
+/* Quando mandar cobrança automática ao cliente: 1 dia antes, no dia e atrasos (1º, 3º, 7º dia e depois a cada 7) */
+function tipoCobranca(c, cfg) {
+  if (quitado(c) || !c.proximoVencimento || !c.telefone || c.autoMsg === false || !c.token) return null;
+  const d = dias(hoje, c.proximoVencimento);
+  if (d === 1 && cfg.antes !== false) return 'lembrete';
+  if (d === 0 && cfg.noDia !== false) return 'hoje';
+  if (d < 0 && cfg.atraso !== false) { const a = -d; if (a === 1 || a === 3 || a === 7 || (a > 7 && a % 7 === 0)) return 'atraso'; }
+  return null;
+}
+function descricao(c, veiculos) {
+  const v = veiculos.find(x => x.id === c.veiculoId);
+  const veic = v ? `${v.modelo} (${v.placa})` : 'veículo';
+  if (c.modalidade === 'compra' && Number(c.totalParcelas) > 0) return `parcela ${(Number(c.parcelasPagas) || 0) + 1} de ${Number(c.totalParcelas)} do ${veic}`;
+  return `locação do ${veic}`;
+}
+
+async function processar(uid, p, extras = []) {
+  const nome = p.empresa || 'Minha locadora';
   const veiculos = (await db.collection(`empresas/${uid}/veiculos`).get()).docs.map(d => ({ id: d.id, ...d.data() }));
-  const clientes = (await db.collection(`empresas/${uid}/clientes`).get()).docs.map(d => ({ id: d.id, ...d.data() }));
+  const clientesDocs = (await db.collection(`empresas/${uid}/clientes`).get()).docs;
+  const clientes = clientesDocs.map(d => ({ id: d.id, ...d.data() }));
 
   // Veículos cuja troca de óleo é responsabilidade do cliente não geram aviso
   const oleoDoCliente = new Set(clientes.filter(c => (c.oleoPorConta === 'cliente' || (c.modalidade === 'compra' && Number(c.totalParcelas) > 0)) && c.veiculoId).map(c => c.veiculoId));
@@ -72,8 +113,36 @@ async function processar(uid, nome, extras = []) {
   if (oleo) partes.push(plural(oleo, 'troca de óleo', 'trocas de óleo'));
   if (kmAtras) partes.push(plural(kmAtras, 'foto do KM atrasada', 'fotos do KM atrasadas'));
   if (km) partes.push(plural(km, 'pedido de foto do KM', 'pedidos de foto do KM'));
-  if (!partes.length && !TESTE) return { nome, enviado: 0, motivo: 'sem avisos' };
 
+  // ---- Mensagens automáticas no WhatsApp ----
+  const cfgDoc = await db.doc(`empresas/${uid}/config/auto`).get();
+  const cfg = cfgDoc.exists ? cfgDoc.data() : {};
+  const liberado = p.role === 'admin' || p.autoWhats === true; // o administrador libera por locadora
+  let wa = 0;
+  if (liberado && cfg.ativo === true) {
+    for (const c of clientes) {
+      const tipo = tipoCobranca(c, cfg);
+      if (!tipo) continue;
+      if (c.autoEnvio && c.autoEnvio.data === hoje) continue; // já enviado hoje
+      const link = BASE + 'pagar.html?t=' + c.token;
+      const primeiro = String(c.nome || '').split(' ')[0] || 'cliente';
+      const desc = descricao(c, veiculos);
+      const ok = tipo === 'atraso'
+        ? await enviarWhats(c.telefone, 'cobranca_atraso', [primeiro, nome, desc, fmtR(c.valor), fmtD(c.proximoVencimento), link], `${nome} · ${c.nome} · atraso`)
+        : await enviarWhats(c.telefone, 'cobranca_lembrete', [primeiro, nome, desc, fmtR(c.valor), tipo === 'hoje' ? `hoje (${fmtD(c.proximoVencimento)})` : `amanhã (${fmtD(c.proximoVencimento)})`, link], `${nome} · ${c.nome} · ${tipo}`);
+      if (ok) { wa++; if (!SIMULACAO) await db.doc(`empresas/${uid}/clientes/${c.id}`).update({ autoEnvio: { data: hoje, tipo } }).catch(() => {}); }
+    }
+    // Resumo do dia para a própria locadora
+    const telResumo = cfg.telefoneResumo || p.telefone;
+    if (cfg.resumo !== false && telResumo && partes.length) {
+      if (await enviarWhats(telResumo, 'resumo_locadora', [nome, partes.join(' · ')], `${nome} · resumo do dia`)) wa++;
+    }
+  }
+
+  // ---- Notificação no celular (push) ----
+  const tokens = (await db.collection(`empresas/${uid}/push`).get()).docs.map(d => d.id);
+  if (!tokens.length) return { nome, enviado: 0, wa, motivo: 'sem aparelho' };
+  if (!partes.length && !TESTE) return { nome, enviado: 0, wa, motivo: 'sem avisos' };
   const corpo = partes.length ? partes.join(' · ') : 'Teste: as notificações estão funcionando.';
   let enviado = 0;
   for (const token of tokens) {
@@ -92,7 +161,7 @@ async function processar(uid, nome, extras = []) {
       } else console.error('Falha ao enviar para', nome, code || e.message);
     }
   }
-  return { nome, enviado, motivo: corpo };
+  return { nome, enviado, wa, motivo: corpo };
 }
 
 const usuarios = (await db.collection('usuarios').get()).docs;
@@ -113,12 +182,13 @@ const avisoContratos = contratos.length > 2
   ? [`${contratos.length} contratos de locadoras para renovar`]
   : contratos.map(c => c.txt.charAt(0).toUpperCase() + c.txt.slice(1));
 
+console.log(SIMULACAO ? 'WhatsApp em MODO SIMULAÇÃO (sem WA_TOKEN/WA_PHONE_ID): nada é enviado de verdade.' : 'WhatsApp oficial ATIVO.');
 let total = 0;
 for (const u of usuarios) {
   const p = u.data();
   if (p.ativo === false) continue; // locadora suspensa
-  const r = await processar(u.id, p.empresa || 'Minha locadora', p.role === 'admin' ? avisoContratos : []);
+  const r = await processar(u.id, p, p.role === 'admin' ? avisoContratos : []);
   total += r.enviado;
-  console.log(`${r.nome}: ${r.enviado} notificação(ões) — ${r.motivo}`);
+  console.log(`${r.nome}: ${r.enviado} notificação(ões) · ${r.wa} WhatsApp — ${r.motivo}`);
 }
-console.log(`Dia ${hoje}: ${total} notificação(ões) enviada(s).`);
+console.log(`Dia ${hoje}: ${total} notificação(ões) enviada(s). WhatsApp: ${waEnviadas} enviada(s), ${waSimuladas} simulada(s), ${waFalhas} falha(s).`);
