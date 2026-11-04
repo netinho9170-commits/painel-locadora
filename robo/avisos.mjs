@@ -26,6 +26,7 @@ function addMeses(s, n) {
 
 // Mesmas regras do app
 function oleoAviso(v) {
+  if (v.kmUltimaTroca === undefined || v.kmUltimaTroca === null || v.kmUltimaTroca === '') return true; // falta informar a última troca
   const intKm = Number(v.intervaloKm) || 1000, intM = Number(v.intervaloMeses) || 3;
   const kmRest = (Number(v.kmUltimaTroca) || 0) + intKm - (Number(v.kmAtual) || 0);
   const diasRest = v.dataUltimaTroca ? dias(hoje, addMeses(v.dataUltimaTroca, intM)) : null;
@@ -54,7 +55,9 @@ async function processar(uid, nome, extras = []) {
   const veiculos = (await db.collection(`empresas/${uid}/veiculos`).get()).docs.map(d => ({ id: d.id, ...d.data() }));
   const clientes = (await db.collection(`empresas/${uid}/clientes`).get()).docs.map(d => ({ id: d.id, ...d.data() }));
 
-  const oleo = veiculos.filter(oleoAviso).length;
+  // Veículos cuja troca de óleo é responsabilidade do cliente não geram aviso
+  const oleoDoCliente = new Set(clientes.filter(c => c.oleoPorConta === 'cliente' && c.veiculoId).map(c => c.veiculoId));
+  const oleo = veiculos.filter(v => !oleoDoCliente.has(v.id) && oleoAviso(v)).length;
   const atras = clientes.filter(cobAtrasada).length;
   const vence = clientes.filter(cobHoje).length;
   const km = clientes.filter(c => kmSituacao(c, veiculos) === 'pedir').length;
