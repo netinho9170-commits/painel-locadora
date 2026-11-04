@@ -390,26 +390,34 @@ function processarEnvios(){
     }).catch(()=>envProc.delete(d.id));
   });
 }
+const PRAZO_FOTO=2; // dias para o cliente responder ao pedido antes de virar "atrasada"
+function diasFoto(c){const n=Number(c.diasFoto);return n>=1?n:15}
+/* Situação da foto do KM: null (em dia ou aguardando resposta), 'pedir' ou 'atrasada' */
 function kmPend(c){
   if(!c.veiculoId||!veic(c.veiculoId)||!c.telefone)return null;
   const base=c.ultimoKmRecebido||c.kmDesde;
   const desdeRec=base?daysBetween(base,todayStr()):999;
-  const desdePed=c.ultimoPedidoKm?daysBetween(c.ultimoPedidoKm,todayStr()):999;
-  if(desdeRec<15||desdePed<3)return null;
-  return {desdeRec,pedido:c.ultimoPedidoKm};
+  const intervalo=diasFoto(c);
+  if(desdeRec<intervalo)return null;
+  const pedido=c.ultimoPedidoKm&&(!base||c.ultimoPedidoKm>=base)?c.ultimoPedidoKm:null;
+  if(!pedido)return {st:'pedir',desdeRec,intervalo,pedido:null};
+  const desdePed=daysBetween(pedido,todayStr());
+  if(desdePed<PRAZO_FOTO)return null;
+  return {st:'atrasada',desdeRec,intervalo,pedido,atraso:base?desdeRec-intervalo:desdePed};
 }
 function waKmLink(c){
-  const v=veic(c.veiculoId);
-  const msg=`Olá, ${String(c.nome).split(' ')[0]}! Aqui é da ${S.eNome}. Está na hora de enviar a foto do painel${v?' do '+v.modelo+' ('+v.placa+')':''} com a quilometragem. É rápido: abra o link, tire a foto e confirme o KM.\n${linkKm(c)}\nObrigado!`;
+  const v=veic(c.veiculoId), p=kmPend(c);
+  const msg=p&&p.st==='atrasada'?`Olá, ${String(c.nome).split(' ')[0]}! Aqui é da ${S.eNome}. Ainda não recebemos a foto do painel${v?' do '+v.modelo+' ('+v.placa+')':''} com a quilometragem. Por favor, envie hoje pelo link: abra, tire a foto e confirme o KM.\n${linkKm(c)}\nObrigado!`:`Olá, ${String(c.nome).split(' ')[0]}! Aqui é da ${S.eNome}. Está na hora de enviar a foto do painel${v?' do '+v.modelo+' ('+v.placa+')':''} com a quilometragem. É rápido: abra o link, tire a foto e confirme o KM.\n${linkKm(c)}\nObrigado!`;
   return 'https://wa.me/'+waNum(c.telefone)+'?text='+encodeURIComponent(msg);
 }
 function kmCard(c){
-  const v=veic(c.veiculoId), p=kmPend(c);
+  const v=veic(c.veiculoId), p=kmPend(c), atr=p.st==='atrasada';
   const quando=c.ultimoKmRecebido?`Última foto há ${p.desdeRec} dias`:'Ainda não enviou foto';
-  return `<div class="card warn">
-    <div class="row"><div style="min-width:0"><div class="title">${esc(c.nome)}</div><div class="sub">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtKm(v.kmAtual)} km</div></div><span class="pill warn">${p.pedido?'Pedir de novo':'Pedir foto'}</span></div>
-    <div class="sub">${quando}${p.pedido?' · último pedido em '+fmtDate(p.pedido):''}</div>
-    <div class="actions">${c.token?`<a class="btn wa" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto no WhatsApp</a>`:'<button type="button" disabled>Preparando link…</button>'}</div>
+  const det=atr?`Pedido em ${fmtDate(p.pedido)} e ainda não enviou${p.atraso>0?' · atrasada há '+p.atraso+(p.atraso===1?' dia':' dias'):''}`:`${quando} · prazo: a cada ${p.intervalo} dias`;
+  return `<div class="card ${atr?'bad':'warn'}">
+    <div class="row"><div style="min-width:0"><div class="title">${esc(c.nome)}</div><div class="sub">${esc(v.modelo)} · ${esc(v.placa)} · ${fmtKm(v.kmAtual)} km</div></div><span class="pill ${atr?'bad':'warn'}">${atr?'Foto atrasada':'Pedir foto'}</span></div>
+    <div class="sub">${det}</div>
+    <div class="actions">${c.token?`<a class="btn wa" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">${atr?'Cobrar foto no WhatsApp':'Pedir foto no WhatsApp'}</a>`:'<button type="button" disabled>Preparando link…</button>'}</div>
   </div>`;
 }
 
@@ -487,6 +495,7 @@ function cCard(c,compact){
       ${!compact&&c.token&&c.telefone&&veic(c.veiculoId)?`<a class="btn" href="${waKmLink(c)}" target="_blank" rel="noopener" data-wa="km" data-id="${c.id}">Pedir foto do KM</a>`:''}
     </div>
     ${c.ultimaCobranca===todayStr()?'<div class="sub">✓ Cobrança enviada hoje</div>':''}
+    ${!compact&&veic(c.veiculoId)?(()=>{const p=kmPend(c);return `<div class="sub">Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
 }
@@ -505,7 +514,8 @@ function render(){
   const oleoAlert=S.veiculos.filter(v=>oleo(v).st!=='ok').sort((a,b)=>oleo(a).kmRest-oleo(b).kmRest);
   const cobAlert=S.clientes.filter(c=>cobr(c).st!=='ok').sort((a,b)=>cobr(a).dias-cobr(b).dias);
   const atras=S.clientes.filter(c=>cobr(c).dias<0);
-  const kmLista=S.clientes.filter(c=>kmPend(c)).sort((a,b)=>kmPend(b).desdeRec-kmPend(a).desdeRec);
+  const kmLista=S.clientes.filter(c=>kmPend(c)).sort((a,b)=>((kmPend(a).st==='atrasada'?0:1)-(kmPend(b).st==='atrasada'?0:1))||(kmPend(b).desdeRec-kmPend(a).desdeRec));
+  const kmAtras=kmLista.filter(c=>kmPend(c).st==='atrasada').length;
   const n=oleoAlert.length+cobAlert.filter(c=>c.ultimaCobranca!==todayStr()).length+kmLista.length;
   const bd=$('#badge');bd.hidden=!n;bd.textContent=n;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===S.tab)));
@@ -533,7 +543,8 @@ function render(){
       <h2>Cobranças <span class="count">${cobAlert.length}</span></h2>
       <div class="list">${cobAlert.length?cobAlert.map(c=>cCard(c,true)).join(''):'<div class="empty">Nenhuma cobrança vencendo nos próximos 3 dias.</div>'}</div>
       <h2>Foto do KM <span class="count">${kmLista.length}</span></h2>
-      <div class="list">${kmLista.length?kmLista.map(kmCard).join(''):'<div class="empty">Nenhum pedido de foto para hoje. Os clientes recebem o pedido a cada 15 dias.</div>'}</div>
+      ${kmAtras?`<div class="sub" style="margin:-4px 0 8px;color:var(--bad)">${kmAtras} ${kmAtras===1?'cliente não enviou a foto':'clientes não enviaram a foto'} depois do pedido</div>`:''}
+      <div class="list">${kmLista.length?kmLista.map(kmCard).join(''):'<div class="empty">Nenhum pedido de foto para hoje. Cada cliente recebe o pedido no prazo definido no cadastro dele (padrão: 15 dias).</div>'}</div>
       <h2>Troca de óleo <span class="count">${oleoAlert.length}</span></h2>
       <div class="list">${oleoAlert.length?oleoAlert.map(x=>vCard(x,true)).join(''):'<div class="empty">Todos os veículos estão com o óleo em dia.</div>'}</div>`;
   }else if(S.tab==='veiculos'){
@@ -597,9 +608,10 @@ function clienteForm(c){
     <label>Valor (R$)<input id="fc-valor" name="valor" type="number" inputmode="decimal" min="0" step="0.01" required value="${esc(c.valor??'')}"></label>
     <label>Cobrança<select id="fc-freq" name="frequencia">${Object.entries(FREQ).map(([k,l])=>`<option value="${k}" ${c.frequencia===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label class="full">Próximo vencimento<input id="fc-venc" name="proximoVencimento" type="date" required value="${esc(c.proximoVencimento)}"></label>
-  </div>${formBtns(isNew)}</form>`,root=>{
+    <label class="full">Foto do KM a cada (dias)<input id="fc-df" name="diasFoto" type="number" inputmode="numeric" min="1" max="90" required value="${esc(c.diasFoto??15)}"></label>
+  </div><p class="sub" style="margin:6px 0 0">Se o cliente não enviar a foto em ${PRAZO_FOTO} dias depois do pedido, aparece como <b>Foto atrasada</b> nos avisos.</p>${formBtns(isNew)}</form>`,root=>{
     root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
-      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento')};
+      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento'),diasFoto:Math.max(1,Math.min(90,+fd.get('diasFoto')||15))};
       if(!isNew&&d.veiculoId!==c.veiculoId)d.kmDesde=todayStr();
       save('clientes',c.id,d);closeSheet();toast(isNew?'Cliente cadastrado':'Cliente salvo');});
     armDelete(root,()=>{removeDoc('clientes',c.id);if(c.token)fs.collection('links').doc(c.token).delete().catch(()=>{})});
