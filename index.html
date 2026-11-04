@@ -249,6 +249,7 @@ auth.onAuthStateChanged(async u=>{
       if(p.ativo!==true){aberto=false;showBlocked('Seu acesso está suspenso. Fale com o administrador do sistema.');return}
       S.meuNome=p.empresa||'Minha locadora';
       const lim=Number(p.limiteVeiculos)>0?Number(p.limiteVeiculos):null;if(lim!==S.meuLimite){S.meuLimite=lim;if(aberto)render()}
+      S.meuAutoWhats=p.autoWhats===true;S.meuTelefone=p.telefone||'';
       if(!aberto){aberto=true;precisaTrocar(u.uid).then(t=>t?showTrocarSenha(u):openTenant(u.uid,S.meuNome))}else{$('#empresaNome').textContent=S.meuNome}
     },()=>showBlocked('Não foi possível verificar seu acesso. Verifique a internet e abra o app de novo.')));
   }
@@ -325,7 +326,7 @@ function pushCard(){
 
 function openTenant(eid,nome){
   stop(tenantSubs);
-  S.eid=eid;S.eNome=nome;S.veiculos=[];S.clientes=[];S.ready={veiculos:false,clientes:false};S.pix=null;
+  S.eid=eid;S.eNome=nome;S.veiculos=[];S.clientes=[];S.ready={veiculos:false,clientes:false};S.pix=null;S.auto={};
   if(S.tab==='locadoras'&&eid!==S.user.uid)S.tab='avisos';
   shell(true);
   $('#empresaNome').textContent=nome;
@@ -345,6 +346,7 @@ function openTenant(eid,nome){
     },e=>{clearTimeout(timer);const b=$('#banner');b.hidden=false;b.textContent=e&&e.code==='permission-denied'?'Sem permissão para ver estes dados.':'Não foi possível carregar os dados. Feche e abra o app de novo.'}));
   });
   tenantSubs.push(fs.doc(`empresas/${eid}/config/pix`).onSnapshot(d=>{if(S.eid!==eid)return;S.pix=d.exists&&d.data().chave?d.data():null;render();syncLinks()},()=>{}));
+  tenantSubs.push(fs.doc(`empresas/${eid}/config/auto`).onSnapshot(d=>{if(S.eid!==eid)return;S.auto=d.exists?d.data():{};render()},()=>{}));
   S.novos=[];
   tenantSubs.push(fs.collection(`empresas/${eid}/envios`).where('novo','==',true).onSnapshot(snap=>{
     if(S.eid!==eid)return;S.novos=snap.docs;processarEnvios();
@@ -546,6 +548,7 @@ function cCard(c,compact){
     </div>
     ${pp?`<div><div class="meter" aria-hidden="true" style="margin:2px 0 6px"><span style="width:${pp.pct}%;background:var(--ok)"></span></div><div class="sub">${pp.quitado?`<b style="color:var(--ok)">Quitado</b> · ${pp.total} de ${pp.total} parcelas pagas${c.quitadoEm?' em '+fmtDate(c.quitadoEm):''}`:`Venda parcelada · <b>parcela ${pp.atual} de ${pp.total}</b> · faltam ${pp.rest} (${fmtR(pp.rest*(Number(c.valor)||0))})${pp.fim?' · quitação prevista '+fmtData(pp.fim):''}`}</div></div>`:''}
     ${c.ultimaCobranca===todayStr()||c.ultimoPix===todayStr()?`<div class="sub">${c.ultimaCobranca===todayStr()?'✓ Cobrança enviada hoje':''}${c.ultimaCobranca===todayStr()&&c.ultimoPix===todayStr()?' · ':''}${c.ultimoPix===todayStr()?'✓ Pix enviado hoje':''}</div>`:''}
+    ${c.autoEnvio&&c.autoEnvio.data&&daysBetween(c.autoEnvio.data,todayStr())<=7?`<div class="sub">🤖 Mensagem automática enviada ${c.autoEnvio.data===todayStr()?'hoje':'em '+fmtDate(c.autoEnvio.data)} (${({lembrete:'lembrete',hoje:'vence hoje',atraso:'atraso'})[c.autoEnvio.tipo]||'cobrança'})</div>`:''}
     ${!compact&&veic(c.veiculoId)&&!pp?(()=>{const p=kmPend(c);return `<div class="sub">${c.oleoPorConta==='cliente'?'Troca de óleo por conta do cliente · ':''}Foto do KM a cada ${diasFoto(c)} dias${p&&p.st==='atrasada'?' · <b style="color:var(--bad)">foto atrasada</b>':c.ultimoKmRecebido?' · última em '+fmtDate(c.ultimoKmRecebido):''}</div>`})():''}
     ${!compact&&c.telefone?`<div class="nums">${esc(c.telefone)}</div>`:''}
   </div>`;
@@ -584,7 +587,7 @@ function lCard(l){
   const c=contrato(l), st=!l.ativo?'bad':c?c.st:'ok';
   return `<div class="card ${st}">
     <div class="row"><div style="min-width:0"><div class="title">${esc(l.empresa)}</div><div class="sub">${esc(l.responsavel||'')}${l.responsavel?' · ':''}${esc(l.email)}</div></div><span class="pill ${l.ativo?(c?c.st:'ok'):'bad'}">${!l.ativo?'Suspensa':c&&c.st!=='ok'?esc(c.txt):'Ativa'}</span></div>
-    <div class="sub">Veículos: ${Number(l.limiteVeiculos)>0?'até '+l.limiteVeiculos:'sem limite'}</div>
+    <div class="sub">Veículos: ${Number(l.limiteVeiculos)>0?'até '+l.limiteVeiculos:'sem limite'} · WhatsApp automático: ${l.autoWhats?'<b style="color:var(--ok)">liberado</b>':'não liberado'}</div>
     <div class="sub">Contrato: ${l.venceContrato?`${PLANOS[l.plano]||''} · de ${fmtData(l.inicioContrato)} até ${fmtData(l.venceContrato)}`:l.plano==='ind'?'indeterminado':'sem prazo definido'}</div>
     ${l.telefone?`<div class="nums">${esc(l.telefone)}${l.criadoEm?' · desde '+fmtDate(l.criadoEm):''}</div>`:''}
     <div class="actions">
@@ -713,6 +716,7 @@ function clienteForm(c){
     <label>Cobrança<select id="fc-freq" name="frequencia">${Object.entries(FREQ).map(([k,l])=>`<option value="${k}" ${c.frequencia===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label class="full">Próximo vencimento<input id="fc-venc" name="proximoVencimento" type="date" required value="${esc(c.proximoVencimento)}"></label>
     <div class="full" id="fc-oleo" ${c.modalidade==='compra'?'hidden':''}><div class="sub" style="margin-bottom:6px">Troca de óleo</div><div class="seg"><label><input type="radio" name="oleoPorConta" value="locadora" ${c.oleoPorConta!=='cliente'?'checked':''}> Locadora faz (avisar)</label><label><input type="radio" name="oleoPorConta" value="cliente" ${c.oleoPorConta==='cliente'?'checked':''}> Cliente é responsável</label></div></div>
+    <label class="full" style="flex-direction:row;align-items:center;gap:8px;color:var(--fg)"><input name="autoMsg" type="checkbox" ${c.autoMsg===false?'':'checked'} style="width:auto"> Enviar cobranças automáticas no WhatsApp</label>
     <label class="full" id="fc-dfl" ${c.modalidade==='compra'?'hidden':''}>Foto do KM a cada (dias)<input id="fc-df" name="diasFoto" type="number" inputmode="numeric" min="1" max="90" required value="${esc(c.diasFoto??15)}"></label>
   </div><p class="sub" id="fc-nota" style="margin:6px 0 0" ${c.modalidade==='compra'?'hidden':''}>Se o cliente não enviar a foto em ${PRAZO_FOTO} dias depois do pedido, aparece como <b>Foto atrasada</b> nos avisos.</p>${formBtns(isNew)}</form>`,root=>{
     root.querySelectorAll('input[name=modalidade]').forEach(r=>r.addEventListener('change',()=>{const cp=r.value==='compra'&&r.checked;root.querySelector('#fc-parc').hidden=!cp;
@@ -721,7 +725,7 @@ function clienteForm(c){
     root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
       const compra=fd.get('modalidade')==='compra', tot=Math.floor(Number(fd.get('totalParcelas'))||0), pg=Math.floor(Number(fd.get('parcelasPagas'))||0);
       if(compra&&(tot<1||pg<0||pg>tot)){toast(tot<1?'Informe o total de parcelas.':'As parcelas pagas não podem passar do total.');return}
-      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),modalidade:compra?'compra':'normal',...(compra?{totalParcelas:tot,parcelasPagas:pg}:{}),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento'),diasFoto:Math.max(1,Math.min(90,+fd.get('diasFoto')||15)),oleoPorConta:fd.get('oleoPorConta')==='cliente'?'cliente':'locadora'};
+      const d={...(isNew?{kmDesde:todayStr()}:clean(c)),modalidade:compra?'compra':'normal',...(compra?{totalParcelas:tot,parcelasPagas:pg}:{}),nome:fd.get('nome').trim(),telefone:fd.get('telefone').trim(),veiculoId:fd.get('veiculoId'),valor:+fd.get('valor'),frequencia:fd.get('frequencia'),proximoVencimento:fd.get('proximoVencimento'),diasFoto:Math.max(1,Math.min(90,+fd.get('diasFoto')||15)),oleoPorConta:fd.get('oleoPorConta')==='cliente'?'cliente':'locadora',autoMsg:!!fd.get('autoMsg')};
       if(!isNew&&d.veiculoId!==c.veiculoId)d.kmDesde=todayStr();
       save('clientes',c.id,d);closeSheet();toast(isNew?'Cliente cadastrado':'Cliente salvo');});
     armDelete(root,()=>{removeDoc('clientes',c.id);if(c.token)fs.collection('links').doc(c.token).delete().catch(()=>{})});
@@ -803,6 +807,7 @@ function locadoraForm(l){
     <label class="full">Responsável<input id="fl-resp" name="responsavel" value="${esc(l.responsavel)}"></label>
     <label class="full">E-mail de acesso<input id="fl-email" name="email" type="email" inputmode="email" required value="${esc(l.email)}" ${isNew?'':'readonly'}></label>
     <label class="full">WhatsApp (com DDD)<input id="fl-tel" name="telefone" type="tel" inputmode="tel" value="${esc(l.telefone)}"></label>
+    <label class="full" style="flex-direction:row;align-items:center;gap:8px;color:var(--fg)"><input id="fl-auto" name="autoWhats" type="checkbox" ${l.autoWhats?'checked':''} style="width:auto"> Liberar mensagens automáticas no WhatsApp</label>
     <label class="full">Limite de veículos<input id="fl-lim" name="limiteVeiculos" type="number" inputmode="numeric" min="1" max="9999" value="${esc(l.limiteVeiculos??(isNew?10:''))}" placeholder="Em branco = sem limite"></label>
     <label>Período de uso<select id="fl-plano" name="plano">${Object.entries(PLANOS).map(([k,n])=>`<option value="${k}" ${(l.plano||(isNew?'1':'ind'))===k?'selected':''}>${n}</option>`).join('')}</select></label>
     <label>Início<input id="fl-ini" name="inicioContrato" type="date" value="${esc(l.inicioContrato||todayStr())}"></label>
@@ -831,6 +836,7 @@ function locadoraForm(l){
       const d={empresa:fd.get('empresa').trim(),responsavel:fd.get('responsavel').trim(),telefone:fd.get('telefone').trim(),plano:fd.get('plano'),inicioContrato:fd.get('inicioContrato')||todayStr()};
       d.venceContrato=venceEm(d.plano,d.inicioContrato);
       d.limiteVeiculos=Number(fd.get('limiteVeiculos'))>0?Math.floor(Number(fd.get('limiteVeiculos'))):null;
+      d.autoWhats=!!fd.get('autoWhats');
       if(!isNew&&d.venceContrato!==l.venceContrato)d.contatoRenovacao=null;
       if(!isNew){
         d.ativo=fd.get('ativo')==='1';
@@ -939,11 +945,39 @@ function pixForm(){
   });
 }
 
+/* ---------- Mensagens automáticas no WhatsApp ---------- */
+function autoLiberado(){return S.eid===S.user.uid?(S.isAdmin||S.meuAutoWhats===true):!!((S.locadoras||[]).find(l=>l.id===S.eid)||{}).autoWhats}
+function autoForm(){
+  const a=S.auto||{}, lib=autoLiberado();
+  const chk=(n,txt,sub,on)=>`<label class="full" style="flex-direction:row;align-items:flex-start;gap:10px;color:var(--fg);font-weight:600"><input type="checkbox" name="${n}" ${on?'checked':''} style="width:auto;margin-top:3px"><span>${txt}<span class="sub" style="display:block;font-weight:400">${sub}</span></span></label>`;
+  openSheet(`<h3>Mensagens automáticas</h3><p class="sub" style="margin-top:-6px">O Giro Frota manda as mensagens sozinho pelo WhatsApp todo dia às 7h, mesmo com o seu celular sem internet.</p>
+  ${lib?'':'<div class="note" style="margin-bottom:12px">Este recurso ainda não foi liberado para a sua locadora. Fale com a SysHub: (92) 98253-8640.</div>'}
+  <form id="f"><div class="grid">
+    ${chk('ativo','Ligar mensagens automáticas','Liga ou desliga todas as mensagens abaixo.',a.ativo===true)}
+    <div class="full sub" style="margin-top:4px;font-weight:600;color:var(--fg)">Para os clientes (com o link de pagamento e o Pix)</div>
+    ${chk('antes','Lembrete 1 dia antes do vencimento','"O pagamento vence amanhã…"',a.antes!==false)}
+    ${chk('noDia','Aviso no dia do vencimento','"O pagamento vence hoje…"',a.noDia!==false)}
+    ${chk('atraso','Aviso de atraso','No 1º, 3º e 7º dia de atraso e depois uma vez por semana.',a.atraso!==false)}
+    <div class="full sub" style="margin-top:4px;font-weight:600;color:var(--fg)">Para você</div>
+    ${chk('resumo','Resumo do dia no meu WhatsApp','Pagamentos atrasados e vencendo, trocas de óleo e fotos do KM.',a.resumo!==false)}
+    <label class="full">Meu WhatsApp para o resumo<input name="telefoneResumo" type="tel" inputmode="tel" value="${esc(a.telefoneResumo||S.meuTelefone||'')}" placeholder="(92) 99999-0000"></label>
+  </div>
+  <div class="sub" style="margin-top:8px">Cada cliente pode ser tirado das mensagens no cadastro dele. Uma mesma mensagem nunca é enviada duas vezes no mesmo dia.</div>
+  <div class="form-actions"><span></span><div class="actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit" ${lib?'':'disabled'}>Salvar</button></div></div></form>`,root=>{
+    root.querySelector('#f').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);
+      const d={ativo:!!fd.get('ativo'),antes:!!fd.get('antes'),noDia:!!fd.get('noDia'),atraso:!!fd.get('atraso'),resumo:!!fd.get('resumo'),telefoneResumo:String(fd.get('telefoneResumo')||'').trim(),atualizadoEm:todayStr()};
+      if(d.ativo&&!S.pix)toast('Dica: cadastre sua chave Pix para o cliente conseguir pagar pelo link.');
+      fs.doc(`empresas/${S.eid}/config/auto`).set(d).then(()=>toast(d.ativo?'Mensagens automáticas ligadas':'Mensagens automáticas desligadas'),()=>toast('Não foi possível salvar.'));
+      closeSheet();});
+  });
+}
+
 function contaSheet(){
   openSheet(`<h3>Minha conta</h3><p class="sub" style="margin-top:-6px">${esc(S.user.email)}${S.isAdmin?' · administrador':''}</p>
   <div class="list">
     ${S.isAdmin?'':`<button type="button" id="cpLink">Copiar link do app</button>`}
     ${pushEstado()==='granted'?'<div class="sub" style="text-align:center">✓ Notificações ativas neste aparelho (avisos às 7h)</div>':'<button type="button" id="pushBtn">Ativar notificações</button>'}
+    <button type="button" id="autoBtn">Mensagens automáticas${S.auto&&S.auto.ativo&&S.eid===S.user.uid?' ✓':''}</button>
     <button type="button" id="pixBtn">${S.pix&&S.eid===S.user.uid?'Chave Pix: '+esc(PIX_TIPOS[S.pix.tipo]||'')+' ✓':'Cadastrar chave Pix'}</button>
     <button type="button" id="trocar">Trocar minha senha</button>
     <button type="button" id="sair" class="danger">Sair</button>
@@ -951,6 +985,7 @@ function contaSheet(){
   </div>
   <div class="credito">Giro Frota · desenvolvido por <b>SysHub</b></div>`,root=>{
     const pb=root.querySelector('#pushBtn');if(pb)pb.onclick=()=>{closeSheet();ativarPush(false)};
+    root.querySelector('#autoBtn').onclick=()=>{if(S.eid!==S.user.uid)openTenant(S.user.uid,S.meuNome);closeSheet();setTimeout(autoForm,350)};
     root.querySelector('#pixBtn').onclick=()=>{if(S.eid!==S.user.uid)openTenant(S.user.uid,S.meuNome);closeSheet();setTimeout(pixForm,350)};
     root.querySelector('#trocar').onclick=async()=>{try{await auth.sendPasswordResetEmail(S.user.email);toast('Enviamos um link para criar nova senha no seu e-mail.')}catch(x){toast(authMsg(x))}};
     root.querySelector('#sair').onclick=()=>auth.signOut();
